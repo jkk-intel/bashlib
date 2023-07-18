@@ -1,13 +1,72 @@
 #!/bin/bash
 
 function argp() {
+    set -e
+    function error() {
+        local MSG="ERROR; $@"
+        local LINE=
+        local IFS=
+        while IFS= read -r LINE; do
+            echo -e "# $LINE" >&2
+        done <<< "$MSG"
+        exit 1
+    }
+    function strindex() { 
+        x="${1%%"$2"*}"
+        [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
+    }
+    function contains() { 
+        x="${1%%"$2"*}"
+        [[ "$x" = "$1" ]] && echo '' || echo true
+    }
+    function setdef() {
+        function join_by { local IFS="$1"; shift; echo "$*"; }
+        local ACTION="$1"; shift;
+        local PARAMS=()
+        local PARAMS_SECTION_ENDED=
+        local VAR_NAME=
+        local ALLOWED_KEYWORDS=" required number integer string boolean positive negative boollike "
+        local PARAM_SPECS=
+        local PARAM_DEFAULT="__ARGPARSE_PARAM_DEFAULT_DEFAULT__"
+        local ARG=
+        for ARG in "$@"; do
+            if [[ -z "$PARAMS_SECTION_ENDED" ]] && [[ "${ARG:0:1}" == "-" ]]; then
+                PARAMS+=("$ARG")
+            else
+                if [[ $ACTION == 'PASSTHRU' ]]; then break; fi
+                if [[ -z "$PARAMS_SECTION_ENDED" ]]; then
+                    PARAMS_SECTION_ENDED=true
+                    VAR_NAME="$ARG"
+                    continue
+                fi
+                if [[ $(contains "$ALLOWED_KEYWORDS" " $ARG ") ]]; then
+                    PARAM_SPECS="${PARAM_SPECS}($ARG) "
+                elif [[ $(strindex "$ARG" "default:") == 0 ]]; then
+                    PARAM_DEFAULT="$ARG"
+                else
+                    error "unrecognized parameter spec '$ARG'"
+                fi
+            fi
+        done
+        local PARAM_DEF="$(join_by ',' "${PARAMS[@]}")"
+        if [[ -z "$PARAM_DEF" ]]; then
+            error "received no flag or longhand param definition" \
+                  "(while handling '$@')"
+        fi
+        if [[ -z "$ARG_DEFS" ]]; then
+            ARG_DEFS=()
+        fi
+        ARG_DEFS+=("$ACTION; $PARAM_DEF; $VAR_NAME; $PARAM_SPECS; $PARAM_DEFAULT");
+    }
+    local ACTION="$1"; shift;
+    if [[ "$ACTION" == "flag" ]]; then setdef FLAG "$@"; return 0; fi
+    if [[ "$ACTION" == "param" ]]; then setdef PARAM "$@"; return 0; fi
+    if [[ "$ACTION" == "hybrid" ]]; then setdef HYBRID "$@"; return 0; fi
+    if [[ "$ACTION" == "passthru" ]]; then setdef PASSTHRU "$@"; return 0; fi
+
     function parse() {
         set -e
         local ARGS=
-        function strindex() { 
-            x="${1%%"$2"*}"
-            [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
-        }
         function split {
             IFS="$3" read -ra "$5" <<< "$1";
         }
@@ -18,15 +77,6 @@ function argp() {
         }
         function output() { 
             echo -e "$@"
-        }
-        function error() {
-            local MSG="ERROR; $@"
-            local LINE=
-            local IFS=
-            while IFS= read -r LINE; do
-                echo -e "# $LINE" >&2
-            done <<< "$MSG"
-            exit 1
         }
         function debug() { 
             if [[ $DEBUG ]]; then
@@ -58,12 +108,12 @@ function argp() {
                 local VAR_NAME="$1"
                 local VAR_VALUE="$2"
                 local IS_ARRAY_PUSH="$3"
-                if [[ "$VAR_VALUE" != *"'"* ]]; then
+                if [[ ! $(contains "$VAR_VALUE" "'") ]]; then
                     echo ""
                     debug "assigning [${YELLOW} $VAR_NAME ${NC}]"
                     echo "$VAR_NAME='$VAR_VALUE'"
                 else
-                    local DELIM_UID=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+                    local DELIM_UID="$(openssl rand -base64 24)"
                     DELIM_UID="${DELIM_UID//+/z}"
                     DELIM_UID="${DELIM_UID////z}"
                     local MULTILINE_DELIM="____EOF_${DELIM_UID}____"
@@ -90,7 +140,7 @@ function argp() {
                     debug "    passthru: --$ARG_NAME"
                 fi
                 if [[ "${#ARG_VALUE}" != '0' ]]; then
-                    if [[ "$ARG_VALUE" == *"'"* ]]; then # need to escape
+                    if [[ $(contains "$ARG_VALUE" "'") ]]; then # need to escape
                         ARG_PASSTHRU+=("\$$VAR_NAME")
                         ARG_PASSTHRU_VAR_NAMES+=("$VAR_NAME")
                         ARG_PASSTHRU_VALUE_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE")")
@@ -103,7 +153,7 @@ function argp() {
                 return 0
             fi
             local VAR_FREESET=
-            if [[ "$VAR_NAME" == *"_FREESET"* ]] || [[ "$VAR_NAME" == *"_freeset"* ]]; then
+            if [[ $(contains "$VAR_NAME" "_FREESET") ]] || [[ $(contains "$VAR_NAME" "_freeset") ]]; then
                 VAR_FREESET=true
             fi
             debug "    setter: '$ARG_NAME' $ARG_TYPE; var: '$VAR_NAME' value: '$ARG_VALUE'"
@@ -112,7 +162,7 @@ function argp() {
                 if [[ -n "$VAR_FREESET" ]]; then
                     ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" true)")
                 else
-                    if [[ "$VAR_ARRAY_INFO" == *"::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::"* ]]; then
+                    if [[ $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
                         error "flag '$ARG_NAME' cannot set" \
                                 "this multiple times (while handling '$ARG_CONTEXT')"
                     fi
@@ -122,14 +172,14 @@ function argp() {
             else 
                 local VAR_IS_ARRAY=
                 local VAR_IS_UNIQUE_ARRAY=
-                if [[ "$VAR_NAME" == *"_ARRAY" ]] || [[ "$VAR_NAME" == *"_array" ]]; then
+                if [[ $(contains "$VAR_NAME" "_ARRAY") ]] || [[ $(contains "$VAR_NAME" "_array") ]]; then
                     VAR_IS_ARRAY=true
                 fi
-                if [[ "$VAR_NAME" == *"_UARRAY" ]] || [[ "$VAR_NAME" == *"_uarray" ]]; then
+                if [[ $(contains "$VAR_NAME" "_UARRAY") ]] || [[ $(contains "$VAR_NAME" "_uarray") ]]; then
                     VAR_IS_ARRAY=true
                     VAR_IS_UNIQUE_ARRAY=true
                 fi
-                if [[ $VAR_IS_ARRAY ]] && [[ "$VAR_ARRAY_INFO" != *"::${VAR_NAME}_INIT::"* ]]; then
+                if [[ $VAR_IS_ARRAY ]] && [[ ! $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_INIT::") ]]; then
                     VAR_ARRAY_INFO="${VAR_ARRAY_INFO}::${VAR_NAME}_INIT::"
                     ARG_SETTERS+=("")
                     ARG_SETTERS+=("# initializing [${YELLOW} $VAR_NAME ${NC}]")
@@ -139,7 +189,7 @@ function argp() {
                 if [[ $VAR_IS_ARRAY ]]; then
                     debug "    set_param: '$ARG_NAME' assigning to '\$$VAR_NAME' (array) << '$ARG_VALUE'"
                     if [[ $VAR_IS_UNIQUE_ARRAY ]]; then
-                        if [[ "$VAR_ARRAY_INFO" != *"::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::"* ]]; then
+                        if [[ ! $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::") ]]; then
                             VAR_ARRAY_INFO="${VAR_ARRAY_INFO}::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::"
                             ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE" true)")
                         else
@@ -154,7 +204,7 @@ function argp() {
                     if [[ -n "$VAR_FREESET" ]]; then
                         ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE")")
                     else
-                        if [[ "$VAR_ARRAY_INFO" == *"::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::"* ]]; then
+                        if [[ $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
                             error "param '$ARG_NAME' cannot set" \
                                 "this multiple times (while handling '$ARG_CONTEXT')"
                         fi
@@ -166,7 +216,7 @@ function argp() {
         }
         local ARGS_ORIGINAL=("$@")
         local PRGM_NAME="$1"
-        if [[ "$PRGM_NAME" == "name:"* ]]; then
+        if [[ "${PRGM_NAME:0:5}" == 'name:' ]]; then
             PRGM_NAME="${PRGM_NAME:5}"
             shift
         else
@@ -186,12 +236,11 @@ function argp() {
             local ARGPARSE_ARG_KV=
             split "$ARG_DEF" --delim '; ' --into ARGPARSE_ARG_KV
 
-            local PARAM_TYPE="$(echo "${ARGPARSE_ARG_KV[0]}" | tr '[:lower:]' '[:upper:]')"
-            local PARAM_TYPE_LOWER="$(echo "$PARAM_TYPE" | tr '[:upper:]' '[:lower:]')"
+            local PARAM_TYPE="${ARGPARSE_ARG_KV[0]}"
 
             local VAR_NAME="${ARGPARSE_ARG_KV[2]}"
             if [[ $PARAM_TYPE == "PASSTHRU" ]]; then
-                local VAR_NAME_UID=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+                local VAR_NAME_UID="$(openssl rand -base64 24)"
                 VAR_NAME_UID="${VAR_NAME_UID//+/z}"
                 VAR_NAME_UID="${VAR_NAME_UID////z}"
                 VAR_NAME="TMP_PASSTHRU_VAR_$VAR_NAME_UID";
@@ -205,29 +254,29 @@ function argp() {
             local ARGPARSE_VAR_ARG_DEF_SPLIT=
             split "$VAR_ARG_DEF" --delim ',' --into ARGPARSE_VAR_ARG_DEF_SPLIT
             local ARG_ALIAS=
-            if (( "${#ARGPARSE_VAR_ARG_DEF_SPLIT[@]}" == 0 )); then
+            if [[ "${#ARGPARSE_VAR_ARG_DEF_SPLIT[@]}" == '0' ]]; then
                 error "received no flag or longhand param definition" \
-                    "(while handling '$PARAM_TYPE_LOWER ${ARGPARSE_ARG_KV[1]} ${ARGPARSE_ARG_KV[2]}')"
+                    "(while handling '$PARAM_TYPE ${ARGPARSE_ARG_KV[1]} ${ARGPARSE_ARG_KV[2]}')"
             fi
             for ARG_ALIAS in "${ARGPARSE_VAR_ARG_DEF_SPLIT[@]}"; do
                 local ARG_ALIAS_ORI="$ARG_ALIAS"
-                if [[ "$ARG_ALIAS" == "-"* ]]; then ARG_ALIAS="${ARG_ALIAS:1}"; fi
-                if [[ "$ARG_ALIAS" == "-"* ]]; then ARG_ALIAS="${ARG_ALIAS:1}"; fi
-                if [[ "$ARG_ALIAS_ORI" == '--'* ]] && [[ "${#ARG_ALIAS}" == '1' ]]; then
+                if [[ "${ARG_ALIAS:0:1}" == "-" ]]; then ARG_ALIAS="${ARG_ALIAS:1}"; fi
+                if [[ "${ARG_ALIAS:0:1}" == "-" ]]; then ARG_ALIAS="${ARG_ALIAS:1}"; fi
+                if [[ "${ARG_ALIAS_ORI:0:2}" == '--' ]] && [[ "${#ARG_ALIAS}" == '1' ]]; then
                     error "single-letter longhand parameter such as '$ARG_ALIAS_ORI' is not allowed" \
-                        "(while handling '$PARAM_TYPE_LOWER ${ARGPARSE_ARG_KV[1]}" \
+                        "(while handling '$PARAM_TYPE ${ARGPARSE_ARG_KV[1]}" \
                         "${ARGPARSE_ARG_KV[2]}')" 
                 fi
-                local ARG_ALIAS_TRIMMED=$(echo "$ARG_ALIAS" | tr '-' '_')
+                local ARG_ALIAS_TRIMMED="${ARG_ALIAS/-/_}"
                 if [[ "$(hashmap_get ARGPARSE_ARGDEF_NAME $ARG_ALIAS_TRIMMED)" ]]; then
                     error "parameter '$ARG_ALIAS_ORI' is already registered" \
-                        "(while handling '$PARAM_TYPE_LOWER ${ARGPARSE_ARG_KV[1]}" \
+                        "(while handling '$PARAM_TYPE ${ARGPARSE_ARG_KV[1]}" \
                         "${ARGPARSE_ARG_KV[2]}')" 
                 fi
                 local "ARGPARSE_ARGDEF_NAME_${ARG_ALIAS_TRIMMED}=${VAR_NAME}"
             done
             
-            local PARAM_DEF_DEBUG="$(echo -e "$PARAM_TYPE_LOWER: [${YELLOW} $VAR_NAME ${NC}]${CYAN}" \
+            local PARAM_DEF_DEBUG="$(echo -e "$PARAM_TYPE: [${YELLOW} $VAR_NAME ${NC}]${CYAN}" \
                                     "${ARGPARSE_ARG_KV[1]} ${NC}$PARAM_SPECS")"
             local VAR_DEFAULT="${ARGPARSE_ARG_KV[4]}"
             if [[ "$VAR_DEFAULT" != '__ARGPARSE_PARAM_DEFAULT_DEFAULT__' ]]; then
@@ -257,7 +306,7 @@ function argp() {
                 continue
             fi
             (( SHIFT_COUNT=SHIFT_COUNT+1 ))
-            if [[ -n "$LAST_ARG_NAME" ]] && [[ "$ARG" == "-"* ]]; then
+            if [[ -n "$LAST_ARG_NAME" ]] && [[ "${ARG:0:1}" == "-" ]]; then
                 if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ "$LAST_ARG_TYPE" == 'TYPE_PASSTHRU' ]]; then
                     add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
                     LAST_ARG_NAME=
@@ -269,7 +318,7 @@ function argp() {
                 fi
             fi
             debug "processing:${CYAN}  '$ARG' ${NC}"
-            if [[ "$ARG" == "--"* ]] && [[ "$ARG" != "--" ]]; then
+            if [[ "${ARG:0:2}" == "--" ]] && [[ "$ARG" != "--" ]]; then
                 local ARG_NAME=
                 local ARG_VALUE=
                 local HAS_VALUE=
@@ -278,14 +327,11 @@ function argp() {
                     ARG_NAME="${ARG:0:$EQ_POS}"
                     ARG_NAME="${ARG_NAME:2}"
                     ARG_VALUE="${ARG:((EQ_POS+1))}"
-                    # debug "ARG_NAME=$ARG_NAME"
-                    # debug "EQ_POS=$EQ_POS"
-                    # debug "ARG_VALUE=$ARG_VALUE"
                     HAS_VALUE=true
                 else
                     ARG_NAME="${ARG:2}"
                 fi
-                local ARG_NAME_TRIMMED=$(echo "$ARG_NAME" | tr '-' '_')
+                local ARG_NAME_TRIMMED="${ARG_NAME/-/_}"
                 local VAR_NAME=$(hashmap_get ARGPARSE_ARGDEF_NAME $ARG_NAME_TRIMMED)
                 if [[ -n "$VAR_NAME" ]]; then
                     local ARG_TYPE=$(hashmap_get ARGPARSE_ARGDEF_TYPE $VAR_NAME)
@@ -298,7 +344,7 @@ function argp() {
                     fi
                     continue
                 fi
-            elif [[ "$ARG" == "-"* ]] && [[ "$ARG" != "-" ]]; then
+            elif [[ "${ARG:0:1}" == "-" ]] && [[ "$ARG" != "-" ]]; then
                 local IDEN="${ARG:1}"
                 for (( i=0; i < ${#IDEN}; i++ )); do
                     local FLAG_CHAR="${IDEN:$i:1}"
@@ -349,9 +395,10 @@ function argp() {
             output "$ARG_PASSTHRU_VALUE_SETTER"
         done
         output "ARG_PASSTHRU=("
+        local PASSTHRU_VARNAMES="${ARG_PASSTHRU_VAR_NAMES[@]}"
         for PASSTHRU_ARG in "${ARG_PASSTHRU[@]}"; do
-            if [[ "$PASSTHRU_ARG" == "\$"* ]] && \
-            [[ "${ARG_PASSTHRU_VAR_NAMES[@]}" == *"${PASSTHRU_ARG:1}"* ]]; then
+            if [[ "${PASSTHRU_ARG:0:1}" == '$' ]] && \
+                [[ $(contains "$PASSTHRU_VARNAMES" "${PASSTHRU_ARG:1}") ]]; then
                 output "\"${PASSTHRU_ARG}\""
             else
                 output "'$PASSTHRU_ARG'"
@@ -373,63 +420,6 @@ function argp() {
             output "shift $SHIFT_COUNT"
         fi
     }
-    function error() {
-        local MSG="ERROR; $@"
-        local LINE=
-        local IFS=
-        while IFS= read -r LINE; do
-            echo -e "# $LINE" >&2
-        done <<< "$MSG"
-        exit 1
-    }
-    function setdef() {
-        function join_by { local IFS="$1"; shift; echo "$*"; }
-        local ACTION="$1"; shift;
-        local PARAMS=()
-        local PARAMS_SECTION_ENDED=
-        local VAR_NAME=
-        local ALLOWED_KEYWORDS=" required number integer string boolean positive negative boollike "
-        local PARAM_SPECS=
-        local PARAM_DEFAULT="__ARGPARSE_PARAM_DEFAULT_DEFAULT__"
-        local ARG=
-        for ARG in "$@"; do
-            if [[ -z "$PARAMS_SECTION_ENDED" ]] && [[ "$ARG" == "-"* ]]; then
-                PARAMS+=("$ARG")
-            else
-                if [[ $ACTION == "PASSTHRU" ]]; then break; fi
-                if [[ -z "$PARAMS_SECTION_ENDED" ]]; then
-                    PARAMS_SECTION_ENDED=true
-                    VAR_NAME="$ARG"
-                    continue
-                fi
-                if [[ "$ALLOWED_KEYWORDS" == *" $ARG "* ]]; then
-                    PARAM_SPECS="${PARAM_SPECS}($ARG) "
-                elif [[ "$ARG" == "default:"* ]]; then
-                    PARAM_DEFAULT="$ARG"
-                else
-                    error "unrecognized parameter spec '$ARG'"
-                fi
-            fi
-        done
-        local PARAM_DEF="$(join_by ',' "${PARAMS[@]}")"
-        if [[ -z "$PARAM_DEF" ]]; then
-            error "received no flag or longhand param definition" \
-                  "(while handling '$@')"
-        fi
-        if [[ -z "$ARG_DEFS" ]]; then
-            ARG_DEFS=()
-        fi
-        ARG_DEFS+=("$ACTION; $PARAM_DEF; $VAR_NAME; $PARAM_SPECS; $PARAM_DEFAULT");
-    }
-    function flag() { setdef FLAG "$@"; }
-    function param() { setdef PARAM "$@"; }
-    function hybrid() { setdef HYBRID "$@"; }
-    function passthru() { setdef PASSTHRU "$@"; }
-    local ACTION="$1"; shift;
-    if [[ "$ACTION" == "flag" ]]; then setdef FLAG "$@"; fi
-    if [[ "$ACTION" == "param" ]]; then setdef PARAM "$@"; fi
-    if [[ "$ACTION" == "hybrid" ]]; then setdef HYBRID "$@"; fi
-    if [[ "$ACTION" == "passthru" ]]; then setdef PASSTHRU "$@"; fi
     if [[ "$ACTION" == "parse" ]]; then 
         parse "$@";
         ARG_DEFS=()

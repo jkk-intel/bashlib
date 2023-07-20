@@ -1,26 +1,9 @@
 #!/bin/bash
 
 function argp() {
-    set -e
-    function error() {
-        local MSG="ERROR; $@"
-        local LINE=
-        local IFS=
-        while IFS= read -r LINE; do
-            echo -e "# $LINE" >&2
-        done <<< "$MSG"
-        exit 1
-    }
-    function strindex() { 
-        x="${1%%"$2"*}"
-        [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
-    }
-    function contains() { 
-        x="${1%%"$2"*}"
-        [[ "$x" = "$1" ]] && echo '' || echo true
-    }
+    failfast
     function setdef() {
-        function join_by { local IFS="$1"; shift; echo "$*"; }
+        failfast
         local ACTION="$1"; shift;
         local PARAMS=()
         local PARAMS_SECTION_ENDED=
@@ -65,28 +48,12 @@ function argp() {
     if [[ "$ACTION" == "passthru" ]]; then setdef PASSTHRU "$@"; return 0; fi
 
     function parse() {
-        set -e
+        failfast
         local ARGS=
-        function split {
-            IFS="$3" read -ra "$5" <<< "$1";
-        }
-        function hashmap_get() { 
-            local ARRAY=$1 INDEX=$2
-            local VAR_NAME="${ARRAY}_$INDEX"
-            printf '%s' "${!VAR_NAME}"
-        }
-        function output() { 
-            echo -e "$@"
-        }
+        function output() { echo -e "$@"; }
         function debug() { 
-            if [[ $DEBUG ]]; then
-                local MSG="$@"
-                local LINE=
-                local IFS=
-                while IFS= read -r LINE; do
-                    echo -e "# $LINE"
-                done <<< "$MSG"
-            fi
+            if [[ -z "$DEBUG" ]]; then return 0; fi
+            local MSG="$@"; while IFS= read -r LINE; do echo -e "# $LINE"; done <<< "$@"
         }
         output "#!/bin/bash"
         local YELLOW='\033[0;33m'
@@ -378,6 +345,8 @@ function argp() {
                 LAST_ARG_TYPE=
                 LAST_ARG_VAR_NAME=
                 continue
+            elif [[ "${ARG:0:1}" == "-" ]]; then
+                error "unknown parameter '$ARG'"
             fi
             debug "passover: reached passover argument section passing over the remaining args."
             debug ""

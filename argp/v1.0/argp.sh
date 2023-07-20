@@ -243,7 +243,7 @@ function argp() {
                         "(while handling '$PARAM_TYPE ${ARGPARSE_ARG_KV[1]}" \
                         "${ARGPARSE_ARG_KV[2]}')" 
                 fi
-                local ARG_ALIAS_TRIMMED="${ARG_ALIAS/-/_}"
+                local ARG_ALIAS_TRIMMED="${ARG_ALIAS//-/_}"
                 if [[ "$(hashmap_get ARGPARSE_ARGDEF_NAME $ARG_ALIAS_TRIMMED)" ]]; then
                     error "parameter '$ARG_ALIAS_ORI' is already registered" \
                         "(while handling '$PARAM_TYPE ${ARGPARSE_ARG_KV[1]}" \
@@ -308,7 +308,7 @@ function argp() {
                 else
                     ARG_NAME="${ARG:2}"
                 fi
-                local ARG_NAME_TRIMMED="${ARG_NAME/-/_}"
+                local ARG_NAME_TRIMMED="${ARG_NAME//-/_}"
                 local VAR_NAME=$(hashmap_get ARGPARSE_ARGDEF_NAME $ARG_NAME_TRIMMED)
                 if [[ -n "$VAR_NAME" ]]; then
                     local ARG_TYPE=$(hashmap_get ARGPARSE_ARGDEF_TYPE $VAR_NAME)

@@ -16,7 +16,6 @@ function argp() {
             if [[ -z "$PARAMS_SECTION_ENDED" ]] && [[ "${ARG:0:1}" == "-" ]]; then
                 PARAMS+=("$ARG")
             else
-                if [[ $ACTION == 'PASSTHRU' ]]; then break; fi
                 if [[ -z "$PARAMS_SECTION_ENDED" ]]; then
                     PARAMS_SECTION_ENDED=true
                     VAR_NAME="$ARG"
@@ -41,11 +40,12 @@ function argp() {
         fi
         ARG_DEFS+=("$ACTION; $PARAM_DEF; $VAR_NAME; $PARAM_SPECS; $PARAM_DEFAULT");
     }
-    local ACTION="$1"; shift;
+    local ACTION="$1"; shift || error "argp requires at least one argument";
     if [[ "$ACTION" == "flag" ]]; then setdef FLAG "$@"; return 0; fi
     if [[ "$ACTION" == "param" ]]; then setdef PARAM "$@"; return 0; fi
     if [[ "$ACTION" == "hybrid" ]]; then setdef HYBRID "$@"; return 0; fi
     if [[ "$ACTION" == "passthru" ]]; then setdef PASSTHRU "$@"; return 0; fi
+    if [[ "$ACTION" == "passthru_flag" ]]; then setdef PASSTHRU_FLAG "$@"; return 0; fi
 
     function parse() {
         failfast
@@ -62,43 +62,48 @@ function argp() {
         local SAFE_ASSIGN="safe_assign"
         local VAR_ARRAY_INFO=
         local ARG_SETTERS=()
+        local ARG_DEFAULTS=()
         local ARG_PASSTHRU=()
         local ARG_PASSTHRU_VAR_NAMES=()
         local ARG_PASSTHRU_VALUE_SETTERS=()
+        function safe_assign_op() {
+            local VAR_NAME="$1"
+            local VAR_VALUE="$2"
+            local IS_ARRAY_PUSH="$3"
+            if [[ ! $(contains "$VAR_VALUE" "'") ]]; then
+                echo ""
+                debug "assigning [${YELLOW} $VAR_NAME ${NC}]"
+                if [[ $IS_ARRAY_PUSH ]]; then
+                    echo "$VAR_NAME+=('$VAR_VALUE')"
+                else
+                    echo "$VAR_NAME='$VAR_VALUE'"
+                fi
+            else
+                local DELIM_UID="$(openssl rand -base64 24)"
+                DELIM_UID="${DELIM_UID//+/z}"
+                DELIM_UID="${DELIM_UID////z}"
+                local MULTILINE_DELIM="____EOF_${DELIM_UID}____"
+                local TEMP_VAR_NAME="TMP_${DELIM_UID}"
+                echo ""
+                debug "safely assigning [${YELLOW} $VAR_NAME ${NC}]"
+                echo "$SAFE_ASSIGN ${TEMP_VAR_NAME} << '${MULTILINE_DELIM}'"
+                echo "$VAR_VALUE"
+                echo "$MULTILINE_DELIM"
+                if [[ $IS_ARRAY_PUSH ]]; then
+                    echo "$VAR_NAME+=(\"\${${TEMP_VAR_NAME}%?}\")"
+                else
+                    echo "$VAR_NAME=\"\${${TEMP_VAR_NAME}%?}\""
+                fi
+                echo "unset $TEMP_VAR_NAME"
+            fi
+        }
         function add_argsetter() {
             local ARG_NAME="$1"
             local ARG_TYPE="$2"
             local VAR_NAME="$3"
             local ARG_VALUE="$4"
             local ARG_CONTEXT="$5"
-            function safe_assign_op() {
-                local VAR_NAME="$1"
-                local VAR_VALUE="$2"
-                local IS_ARRAY_PUSH="$3"
-                if [[ ! $(contains "$VAR_VALUE" "'") ]]; then
-                    echo ""
-                    debug "assigning [${YELLOW} $VAR_NAME ${NC}]"
-                    echo "$VAR_NAME='$VAR_VALUE'"
-                else
-                    local DELIM_UID="$(openssl rand -base64 24)"
-                    DELIM_UID="${DELIM_UID//+/z}"
-                    DELIM_UID="${DELIM_UID////z}"
-                    local MULTILINE_DELIM="____EOF_${DELIM_UID}____"
-                    local TEMP_VAR_NAME="TMP_${DELIM_UID}"
-                    echo ""
-                    debug "safely assigning [${YELLOW} $VAR_NAME ${NC}]"
-                    echo "$SAFE_ASSIGN ${TEMP_VAR_NAME} << '${MULTILINE_DELIM}'"
-                    echo "$VAR_VALUE"
-                    echo "$MULTILINE_DELIM"
-                    if [[ $IS_ARRAY_PUSH ]]; then
-                        echo "$VAR_NAME+=(\"\${${TEMP_VAR_NAME}%?}\")"
-                    else
-                        echo "$VAR_NAME=\"\${${TEMP_VAR_NAME}%?}\""
-                    fi
-                    echo "unset $TEMP_VAR_NAME"
-                fi
-            }
-            if [[ "$ARG_TYPE" == 'TYPE_PASSTHRU' ]]; then
+            if [[ $(contains "$ARG_TYPE" TYPE_PASSTHRU) ]]; then
                 if [[ "${#ARG_NAME}" == '1' ]]; then
                     ARG_PASSTHRU+=("-$ARG_NAME")
                     debug "    passthru: -$ARG_NAME"
@@ -117,14 +122,16 @@ function argp() {
                         debug "    passthru: $ARG_VALUE"
                     fi
                 fi
-                return 0
+                local PASSTHRU_VARNAME=$(hashmap_get ARGPARSE_ARGDEF_VAR_ALIAS $VAR_NAME)
+                if [[ -z "$PASSTHRU_VARNAME" ]]; then return 0; fi
+                VAR_NAME="$PASSTHRU_VARNAME"
             fi
             local VAR_FREESET=
             if [[ $(contains "$VAR_NAME" "_FREESET") ]] || [[ $(contains "$VAR_NAME" "_freeset") ]]; then
                 VAR_FREESET=true
             fi
             debug "    setter: '$ARG_NAME' $ARG_TYPE; var: '$VAR_NAME' value: '$ARG_VALUE'"
-            if [[ "$ARG_TYPE" == 'TYPE_FLAG' ]]; then
+            if [[ $(contains "$ARG_TYPE" FLAG) ]]; then
                 debug "    set_flag: '$ARG_NAME' assigning to '\$$VAR_NAME' = 'true'"
                 if [[ -n "$VAR_FREESET" ]]; then
                     ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" true)")
@@ -206,11 +213,13 @@ function argp() {
             local PARAM_TYPE="${ARGPARSE_ARG_KV[0]}"
 
             local VAR_NAME="${ARGPARSE_ARG_KV[2]}"
-            if [[ $PARAM_TYPE == "PASSTHRU" ]]; then
+            local VAR_NAME_ORIGINAL="$VAR_NAME"
+            if [[ $(contains "$PARAM_TYPE" PASSTHRU) ]]; then
                 local VAR_NAME_UID="$(openssl rand -base64 24)"
                 VAR_NAME_UID="${VAR_NAME_UID//+/z}"
                 VAR_NAME_UID="${VAR_NAME_UID////z}"
-                VAR_NAME="TMP_PASSTHRU_VAR_$VAR_NAME_UID";
+                VAR_NAME="TMP_PASSTHRU_VAR_$VAR_NAME_UID"
+                local "ARGPARSE_ARGDEF_VAR_ALIAS_$VAR_NAME=${VAR_NAME_ORIGINAL}"
             fi
             local PARAM_SPECS="${ARGPARSE_ARG_KV[3]}"
             local "ARGPARSE_ARGDEF_TYPE_${VAR_NAME}=TYPE_${PARAM_TYPE}"
@@ -251,6 +260,7 @@ function argp() {
                 (( DEFAULT_VAL_START_AT=DEFAULT_VAL_START_AT+10 ))
                 VAR_DEFAULT="${ARG_DEF:$DEFAULT_VAL_START_AT}"
                 debug "$PARAM_DEF_DEBUG default: $VAR_DEFAULT"
+                ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME_ORIGINAL" "$VAR_DEFAULT")")
             else
                 debug "$PARAM_DEF_DEBUG"
             fi
@@ -274,13 +284,13 @@ function argp() {
             fi
             (( SHIFT_COUNT=SHIFT_COUNT+1 ))
             if [[ -n "$LAST_ARG_NAME" ]] && [[ "${ARG:0:1}" == "-" ]]; then
-                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ "$LAST_ARG_TYPE" == 'TYPE_PASSTHRU' ]]; then
+                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ $(contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
                     add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
                     LAST_ARG_NAME=
                     LAST_ARG_TYPE=
                     LAST_ARG_VAR_NAME=
                 else
-                    error "param '$LAST_ARG_NAME' requires a value," \
+                    error "param '$LAST_ARG_NAME' requires a value ," \
                         "but instead got '$ARG' (while handling '$ARG_CONTEXT')"
                 fi
             fi
@@ -318,7 +328,7 @@ function argp() {
                     local VAR_NAME=$(hashmap_get ARGPARSE_ARGDEF_NAME $FLAG_CHAR)
                     if [[ $VAR_NAME ]]; then
                         local ARG_TYPE=$(hashmap_get ARGPARSE_ARGDEF_TYPE $VAR_NAME)
-                        if [[ $ARG_TYPE == 'TYPE_FLAG' ]]; then
+                        if [[ $(contains "$ARG_TYPE" FLAG) ]]; then
                             add_argsetter "$FLAG_CHAR" "$ARG_TYPE" "$VAR_NAME" '' "$ARG_CONTEXT"
                         else
                             local ARG_VALUE="${IDEN:(($i+1))}"
@@ -340,11 +350,18 @@ function argp() {
             fi
             if [[ -n "$LAST_ARG_NAME" ]]; then
                 local ARG_VALUE="$ARG"
-                add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" "$ARG_VALUE" "$ARG_CONTEXT"
-                LAST_ARG_NAME=
-                LAST_ARG_TYPE=
-                LAST_ARG_VAR_NAME=
-                continue
+                if [[ $(contains "$LAST_ARG_TYPE" FLAG) ]]; then
+                    add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
+                    LAST_ARG_NAME=
+                    LAST_ARG_TYPE=
+                    LAST_ARG_VAR_NAME=
+                else 
+                    add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" "$ARG_VALUE" "$ARG_CONTEXT"
+                    LAST_ARG_NAME=
+                    LAST_ARG_TYPE=
+                    LAST_ARG_VAR_NAME=
+                    continue
+                fi
             elif [[ "${ARG:0:1}" == "-" ]]; then
                 error "unknown parameter '$ARG'"
             fi
@@ -392,5 +409,8 @@ function argp() {
     if [[ "$ACTION" == "parse" ]]; then 
         parse "$@";
         ARG_DEFS=()
+        return 0
     fi
+    error "Unknown argp action '$ACTION' supported actions are" \
+        "[ parse, flag, param, hybrid, passthru, passthru_flag ]"
 }

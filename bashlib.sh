@@ -70,12 +70,12 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
     }
     function trylock() {
         __bashlib
-        if [[ -z "$1" ]] || [[ -z "$2" ]]; then return 1; fi
+        if [[ -z "$1" ]] || [[ -z "$2" ]] || [[ -z "$3" ]]; then return 1; fi
         local START_TIME=$(date +%s)
-        while [[ ! $(lock "$1") ]]; do
+        while [[ ! $(lock "$1" "$2") ]]; do
             sleep 0.2;
-            if (( $(date +%s)-START_TIME>$2 )); then
-                echo "unable to gain lock in ${2}s" 1>&2; return 1;
+            if (( $(date +%s)-START_TIME>$3 )); then
+                echo "unable to gain lock in ${3}s" 1>&2; return 1;
             fi
         done
         echo true

@@ -40,7 +40,7 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
         if [[ -z "$1" ]]; then return 1; fi
         local HASH="$(echo "$1" | shasum -a 256)"; HASH="${HASH:0:32}"
         local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
-        local LOCKF="$LOCKDIR/tmp/$HASH.lock"
+        local LOCKF="$LOCKDIR/tmp/$HASH.lock" ; mkdir -p "$LOCKDIR/tmp"
         local EXP="$2"; [[ -z "$EXP" ]] && EXP=60; (( EXP=EXP+$(date +%s) ));
         local LOCKER=
         if ( set -o noclobber; echo "$$:$EXP" > "$LOCKF" ) 2> /dev/null; then

@@ -208,7 +208,7 @@ function argp() {
         for ARG_DEF in "${ARG_DEFS[@]}"; do
             local ARG_DEV_PRETTY=
             local ARGPARSE_ARG_KV=
-            split "$ARG_DEF" --delim '; ' --into ARGPARSE_ARG_KV
+            str_split "$ARG_DEF" --delim '; ' --into ARGPARSE_ARG_KV
 
             local PARAM_TYPE="${ARGPARSE_ARG_KV[0]}"
 
@@ -228,7 +228,7 @@ function argp() {
             # must be done after VAR_NAME resolution
             local VAR_ARG_DEF="${ARGPARSE_ARG_KV[1]}"
             local ARGPARSE_VAR_ARG_DEF_SPLIT=
-            split "$VAR_ARG_DEF" --delim ',' --into ARGPARSE_VAR_ARG_DEF_SPLIT
+            str_split "$VAR_ARG_DEF" --delim ',' --into ARGPARSE_VAR_ARG_DEF_SPLIT
             local ARG_ALIAS=
             if [[ "${#ARGPARSE_VAR_ARG_DEF_SPLIT[@]}" == '0' ]]; then
                 error "received no flag or longhand param definition" \
@@ -414,3 +414,5 @@ function argp() {
     error "Unknown argp action '$ACTION' supported actions are" \
         "[ parse, flag, param, hybrid, passthru, passthru_flag ]"
 }
+
+BASHLIB_IMPORTS="$BASHLIB_IMPORTS:argp:"

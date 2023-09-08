@@ -1,22 +1,40 @@
 #!/bin/bash
 
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
-BASHLIB_LIB_DEFAULT="${BASHLIB_DEFAULT_LIB:=}"
+BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"
 BASHLIB_LIB_ALLOWLIST="${BASHLIB_LIB_ALLOWLIST:=}"
 
 function should_alias() { if [[ "$ALIASES" == *" $1 "* ]]; then return 1; fi ; ALIASES="$ALIASES $1 "; }
 should_alias expand_aliases && shopt -s expand_aliases
 should_alias failfast && alias failfast='if [[ "$-" != *"e"* ]]; then set -e; trap "set +e" RETURN; fi'
 should_alias failignore && alias failignore='if [[ "$-" == *"e"* ]]; then set +e; trap "set -e" RETURN; fi'
+should_alias __silent && alias __silent=' >/dev/null 2>&1 '
+should_alias __bashlib && alias __bashlib='if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
 
 if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
-    function error() { while IFS= read -r LINE; do echo -e "# $LINE" >&2; done <<< "ERROR; $@"; exit 1; }
-    function strindex() { local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo -1 || echo ${#x}; }
-    function contains() { local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo '' || echo true; }
-    function join_by { local IFS="$1"; shift; echo "$*"; }
-    function split { IFS="$3" read -ra "$5" <<< "$1"; }
+    function error() { 
+        __bashlib
+        if [[ "$1" == "-m" ]]; then local NO_EXIT=true; shift; fi
+        while IFS= read -r LINE; do echo -e "# $LINE" >&2; done <<< "ERROR; $@";
+        [[ $NO_EXIT ]] || return 1;
+    }
+    function str_index() {
+        __bashlib
+        local x="${1%%"$2"*}";
+        [[ "$x" = "$1" ]] && echo -1 || echo ${#x};
+    }
+    function str_contains() {
+        __bashlib
+        local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo '' || echo true;
+    }
+    function str_joinby {
+        local IFS="$1"; shift; echo "$*";
+    }
+    function str_split { IFS="$3" read -ra "$5" <<< "$1"; }
     function hashmap_get() { local ARR=$1 I=$2; local VAR="${ARR}_$I"; printf '%s' "${!VAR}"; }
+    function pos_int() { case "$1" in ''|*[!0-9]*) ;; *) echo true ;; esac }
     function lock() {
+        __bashlib
         failignore
         if [[ -z "$1" ]]; then return 1; fi
         local HASH="$(echo "$1" | shasum -a 256)"; HASH="${HASH:0:32}"
@@ -41,6 +59,7 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
         fi
     }
     function unlock() {
+        __bashlib
         if [[ -z "$1" ]]; then return 1; fi
         local HASH="$(echo "$1" | shasum -a 256)"
         HASH="${HASH:0:32}"
@@ -48,6 +67,7 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
         rm -rf "$pidf"
     }
     function trylock() {
+        __bashlib
         if [[ -z "$1" ]] || [[ -z "$2" ]]; then return 1; fi
         local START_TIME=$(date +%s)
         while [[ ! $(lock "$1") ]]; do
@@ -56,6 +76,24 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
                 echo "unable to gain lock in ${2}s" 1>&2; return 1;
             fi
         done
+    }
+    function killtree() {
+        __bashlib
+        if [[ "$1" != "-"* ]]; then error "Usage: killtree -SIGNAL <PID>"; fi
+        pkill "$1" -P "$2" & local CHPID= ; while IFS= read -r CHPID; do
+            [[ "$CHPID" ]] && [[ "$CHPID" != "$2" ]] && killtree "$1" "$CHPID"
+        done <<< "$(pgrep -P "$2" || true)"
+    }
+    function timeout() {
+        __bashlib
+        local TIMEOUT="$1" GRACE_PERIOD=; shift;
+        if [[ $(pos_int "$1") ]]; then GRACE_PERIOD="$1"; shift; fi
+        local EXPR="$@"; local EVAL_PID= ; (
+            eval "$EXPR &"; EVAL_PID=$!
+            ( sleep $TIMEOUT; error -m "Timed out in ${TIMEOUT}s: $EXPR"; killtree -SIGTERM $EVAL_PID __silent) &
+            [[ -n "$GRACE_PERIOD" ]] && ( sleep $((TIMEOUT+GRACE_PERIOD)); killtree -SIGKILL $EVAL_PID __silent) &
+            wait $EVAL_PID
+        )
     }
     BASHLIB_DEFAULT_FUNCTIONS_SET=true
 fi
@@ -68,12 +106,12 @@ function bashlib() {
         local AFTER_FROM= LIB_SOURCE= NOCACHE_IMPORT= DEBUG= PACKAGES=()
         for ARG in "$@"; do
             if [[ $ARG == '-from' ]] || [[ $ARG == '--from' ]]; then AFTER_FROM=true; continue; fi
+            if [[ "$ARG" == *"-no-cache" ]]; then NOCACHE_IMPORT=true && continue; fi
+            if [[ "$ARG" == *"-debug" ]]; then DEBUG=true && continue; fi
             if [[ $AFTER_FROM ]]; then
                 if [[ -z "$LIB_SOURCE" ]]; then
                     LIB_SOURCE="$ARG"; LIB_SOURCE="${LIB_SOURCE:="$BASHLIB_LIB_DEFAULT"}";
                 fi
-                if [[ "$ARG" == *"-no-cache" ]]; then NOCACHE_IMPORT=true; fi
-                if [[ "$ARG" == *"-debug" ]]; then DEBUG=true; fi
             else
                 if [[ "$ARG" == "-"* ]]; then error "cannot provide import parameter like '$ARG' before '-from'"; fi
                 PACKAGES+=("$ARG")
@@ -81,7 +119,7 @@ function bashlib() {
         done
         if [[ -z "$LIB_SOURCE" ]]; then LIB_SOURCE="$BASHLIB_LIB_DEFAULT"; fi
         for PKG_NAME_FULL in "${PACKAGES[@]}"; do
-            local PKG_INFO=; split "$PKG_NAME_FULL" --delim ':' --into PKG_INFO
+            local PKG_INFO=; str_split "$PKG_NAME_FULL" --delim ':' --into PKG_INFO
             local PKG_NAME="${PKG_INFO[0]}"; local PKG_VER="${PKG_INFO[1]}"; local PKG_BRANCH="${PKG_INFO[2]}"
             PKG_VER="${PKG_VER:="v1.0"}"; PKG_BRANCH="${PKG_BRANCH:="main"}"
             local LIB_DIR="$BASHLIB_HOME/$LIB_SOURCE/$PKG_BRANCH"
@@ -110,7 +148,12 @@ function bashlib() {
             debug "cloning $PKG_NAME"
             {
                 mkdir -p "$PKG_DIR"; rm -rf "$CLONE_DIR"; mkdir -p "$CLONE_DIR";
-                git clone https://github.com/$LIB_SOURCE.git --depth 1 "$CLONE_DIR"
+                local TOKEN_HEADER=
+                if [[ $BASHLIB_GITHUB_ACCESS ]]; then
+                    local TOKEN_BASE64="$(printf "x-access-token:$BASHLIB_GITHUB_ACCESS" | base64)"
+                    TOKEN_HEADER="-c http.extraHeader='Authorization: basic $TOKEN_BASE64'"
+                fi
+                git $TOKEN_HEADER clone https://github.com/$LIB_SOURCE.git --depth 1 "$CLONE_DIR"
                 cd "$CLONE_DIR";
                 git checkout $PKG_BRANCH;
                 git reset --hard; git clean -ffdx;

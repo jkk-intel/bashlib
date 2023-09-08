@@ -28,7 +28,7 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
         __bashlib
         local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo '' || echo true;
     }
-    function str_joinby {
+    function str_join_by {
         local IFS="$1"; shift; echo "$*";
     }
     function str_split { IFS="$3" read -ra "$5" <<< "$1"; }

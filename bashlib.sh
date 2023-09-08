@@ -65,7 +65,8 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
         if [[ -z "$1" ]]; then return 1; fi
         local HASH="$(echo "$1" | shasum -a 256)"
         HASH="${HASH:0:32}"
-        local pidf="/tmp/$HASH.lock"
+        local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
+        local pidf="$LOCKDIR/tmp/$HASH.lock"
         rm -rf "$pidf"
     }
     function trylock() {

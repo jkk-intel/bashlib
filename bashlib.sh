@@ -78,6 +78,7 @@ if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
                 echo "unable to gain lock in ${2}s" 1>&2; return 1;
             fi
         done
+        echo true
     }
     function killtree() {
         __bashlib

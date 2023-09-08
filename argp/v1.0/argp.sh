@@ -23,7 +23,7 @@ function argp() {
                 fi
                 if [[ $(contains "$ALLOWED_KEYWORDS" " $ARG ") ]]; then
                     PARAM_SPECS="${PARAM_SPECS}($ARG) "
-                elif [[ $(strindex "$ARG" "default:") == 0 ]]; then
+                elif [[ $(str_index "$ARG" "default:") == 0 ]]; then
                     PARAM_DEFAULT="$ARG"
                 else
                     error "unrecognized parameter spec '$ARG'"
@@ -256,7 +256,7 @@ function argp() {
                                     "${ARGPARSE_ARG_KV[1]} ${NC}$PARAM_SPECS")"
             local VAR_DEFAULT="${ARGPARSE_ARG_KV[4]}"
             if [[ "$VAR_DEFAULT" != '__ARGPARSE_PARAM_DEFAULT_DEFAULT__' ]]; then
-                local DEFAULT_VAL_START_AT="$(strindex "$ARG_DEF" '; default:')"
+                local DEFAULT_VAL_START_AT="$(str_index "$ARG_DEF" '; default:')"
                 (( DEFAULT_VAL_START_AT=DEFAULT_VAL_START_AT+10 ))
                 VAR_DEFAULT="${ARG_DEF:$DEFAULT_VAL_START_AT}"
                 debug "$PARAM_DEF_DEBUG default: $VAR_DEFAULT"
@@ -299,7 +299,7 @@ function argp() {
                 local ARG_NAME=
                 local ARG_VALUE=
                 local HAS_VALUE=
-                local EQ_POS=$(strindex "$ARG" '=')
+                local EQ_POS=$(str_index "$ARG" '=')
                 if (( EQ_POS > 0 )); then
                     ARG_NAME="${ARG:0:$EQ_POS}"
                     ARG_NAME="${ARG_NAME:2}"

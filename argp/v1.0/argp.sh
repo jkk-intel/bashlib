@@ -30,7 +30,7 @@ function argp() {
                 fi
             fi
         done
-        local PARAM_DEF="$(join_by ',' "${PARAMS[@]}")"
+        local PARAM_DEF="$(str_join_by ',' "${PARAMS[@]}")"
         if [[ -z "$PARAM_DEF" ]]; then
             error "received no flag or longhand param definition" \
                   "(while handling '$@')"

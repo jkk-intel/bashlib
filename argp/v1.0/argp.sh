@@ -21,7 +21,7 @@ function argp() {
                     VAR_NAME="$ARG"
                     continue
                 fi
-                if [[ $(contains "$ALLOWED_KEYWORDS" " $ARG ") ]]; then
+                if [[ $(str_contains "$ALLOWED_KEYWORDS" " $ARG ") ]]; then
                     PARAM_SPECS="${PARAM_SPECS}($ARG) "
                 elif [[ $(str_index "$ARG" "default:") == 0 ]]; then
                     PARAM_DEFAULT="$ARG"
@@ -70,7 +70,7 @@ function argp() {
             local VAR_NAME="$1"
             local VAR_VALUE="$2"
             local IS_ARRAY_PUSH="$3"
-            if [[ ! $(contains "$VAR_VALUE" "'") ]]; then
+            if [[ ! $(str_contains "$VAR_VALUE" "'") ]]; then
                 echo ""
                 debug "assigning [${YELLOW} $VAR_NAME ${NC}]"
                 if [[ $IS_ARRAY_PUSH ]]; then
@@ -103,7 +103,7 @@ function argp() {
             local VAR_NAME="$3"
             local ARG_VALUE="$4"
             local ARG_CONTEXT="$5"
-            if [[ $(contains "$ARG_TYPE" TYPE_PASSTHRU) ]]; then
+            if [[ $(str_contains "$ARG_TYPE" TYPE_PASSTHRU) ]]; then
                 if [[ "${#ARG_NAME}" == '1' ]]; then
                     ARG_PASSTHRU+=("-$ARG_NAME")
                     debug "    passthru: -$ARG_NAME"
@@ -112,7 +112,7 @@ function argp() {
                     debug "    passthru: --$ARG_NAME"
                 fi
                 if [[ "${#ARG_VALUE}" != '0' ]]; then
-                    if [[ $(contains "$ARG_VALUE" "'") ]]; then # need to escape
+                    if [[ $(str_contains "$ARG_VALUE" "'") ]]; then # need to escape
                         ARG_PASSTHRU+=("\$$VAR_NAME")
                         ARG_PASSTHRU_VAR_NAMES+=("$VAR_NAME")
                         ARG_PASSTHRU_VALUE_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE")")
@@ -127,16 +127,16 @@ function argp() {
                 VAR_NAME="$PASSTHRU_VARNAME"
             fi
             local VAR_FREESET=
-            if [[ $(contains "$VAR_NAME" "_FREESET") ]] || [[ $(contains "$VAR_NAME" "_freeset") ]]; then
+            if [[ $(str_contains "$VAR_NAME" "_FREESET") ]] || [[ $(str_contains "$VAR_NAME" "_freeset") ]]; then
                 VAR_FREESET=true
             fi
             debug "    setter: '$ARG_NAME' $ARG_TYPE; var: '$VAR_NAME' value: '$ARG_VALUE'"
-            if [[ $(contains "$ARG_TYPE" FLAG) ]]; then
+            if [[ $(str_contains "$ARG_TYPE" FLAG) ]]; then
                 debug "    set_flag: '$ARG_NAME' assigning to '\$$VAR_NAME' = 'true'"
                 if [[ -n "$VAR_FREESET" ]]; then
                     ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" true)")
                 else
-                    if [[ $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
+                    if [[ $(str_contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
                         error "flag '$ARG_NAME' cannot set" \
                                 "this multiple times (while handling '$ARG_CONTEXT')"
                     fi
@@ -146,14 +146,14 @@ function argp() {
             else 
                 local VAR_IS_ARRAY=
                 local VAR_IS_UNIQUE_ARRAY=
-                if [[ $(contains "$VAR_NAME" "_ARRAY") ]] || [[ $(contains "$VAR_NAME" "_array") ]]; then
+                if [[ $(str_contains "$VAR_NAME" "_ARRAY") ]] || [[ $(str_contains "$VAR_NAME" "_array") ]]; then
                     VAR_IS_ARRAY=true
                 fi
-                if [[ $(contains "$VAR_NAME" "_UARRAY") ]] || [[ $(contains "$VAR_NAME" "_uarray") ]]; then
+                if [[ $(str_contains "$VAR_NAME" "_UARRAY") ]] || [[ $(str_contains "$VAR_NAME" "_uarray") ]]; then
                     VAR_IS_ARRAY=true
                     VAR_IS_UNIQUE_ARRAY=true
                 fi
-                if [[ $VAR_IS_ARRAY ]] && [[ ! $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_INIT::") ]]; then
+                if [[ $VAR_IS_ARRAY ]] && [[ ! $(str_contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_INIT::") ]]; then
                     VAR_ARRAY_INFO="${VAR_ARRAY_INFO}::${VAR_NAME}_INIT::"
                     ARG_SETTERS+=("")
                     ARG_SETTERS+=("# initializing [${YELLOW} $VAR_NAME ${NC}]")
@@ -163,7 +163,7 @@ function argp() {
                 if [[ $VAR_IS_ARRAY ]]; then
                     debug "    set_param: '$ARG_NAME' assigning to '\$$VAR_NAME' (array) << '$ARG_VALUE'"
                     if [[ $VAR_IS_UNIQUE_ARRAY ]]; then
-                        if [[ ! $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::") ]]; then
+                        if [[ ! $(str_contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::") ]]; then
                             VAR_ARRAY_INFO="${VAR_ARRAY_INFO}::${VAR_NAME}_VALUE=(UNIQUE__$ARG_VALUE)::"
                             ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE" true)")
                         else
@@ -178,7 +178,7 @@ function argp() {
                     if [[ -n "$VAR_FREESET" ]]; then
                         ARG_SETTERS+=("$(safe_assign_op "$VAR_NAME" "$ARG_VALUE")")
                     else
-                        if [[ $(contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
+                        if [[ $(str_contains "$VAR_ARRAY_INFO" "::${VAR_NAME}_VALUE_ONCE=$VAR_NAME::") ]]; then
                             error "param '$ARG_NAME' cannot set" \
                                 "this multiple times (while handling '$ARG_CONTEXT')"
                         fi
@@ -214,7 +214,7 @@ function argp() {
 
             local VAR_NAME="${ARGPARSE_ARG_KV[2]}"
             local VAR_NAME_ORIGINAL="$VAR_NAME"
-            if [[ $(contains "$PARAM_TYPE" PASSTHRU) ]]; then
+            if [[ $(str_contains "$PARAM_TYPE" PASSTHRU) ]]; then
                 local VAR_NAME_UID="$(openssl rand -base64 24)"
                 VAR_NAME_UID="${VAR_NAME_UID//+/z}"
                 VAR_NAME_UID="${VAR_NAME_UID////z}"
@@ -284,7 +284,7 @@ function argp() {
             fi
             (( SHIFT_COUNT=SHIFT_COUNT+1 ))
             if [[ -n "$LAST_ARG_NAME" ]] && [[ "${ARG:0:1}" == "-" ]]; then
-                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ $(contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
+                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ $(str_contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
                     add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
                     LAST_ARG_NAME=
                     LAST_ARG_TYPE=
@@ -328,7 +328,7 @@ function argp() {
                     local VAR_NAME=$(hashmap_get ARGPARSE_ARGDEF_NAME $FLAG_CHAR)
                     if [[ $VAR_NAME ]]; then
                         local ARG_TYPE=$(hashmap_get ARGPARSE_ARGDEF_TYPE $VAR_NAME)
-                        if [[ $(contains "$ARG_TYPE" FLAG) ]]; then
+                        if [[ $(str_contains "$ARG_TYPE" FLAG) ]]; then
                             add_argsetter "$FLAG_CHAR" "$ARG_TYPE" "$VAR_NAME" '' "$ARG_CONTEXT"
                         else
                             local ARG_VALUE="${IDEN:(($i+1))}"
@@ -350,7 +350,7 @@ function argp() {
             fi
             if [[ -n "$LAST_ARG_NAME" ]]; then
                 local ARG_VALUE="$ARG"
-                if [[ $(contains "$LAST_ARG_TYPE" FLAG) ]]; then
+                if [[ $(str_contains "$LAST_ARG_TYPE" FLAG) ]]; then
                     add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
                     LAST_ARG_NAME=
                     LAST_ARG_TYPE=
@@ -384,7 +384,7 @@ function argp() {
         local PASSTHRU_VARNAMES="${ARG_PASSTHRU_VAR_NAMES[@]}"
         for PASSTHRU_ARG in "${ARG_PASSTHRU[@]}"; do
             if [[ "${PASSTHRU_ARG:0:1}" == '$' ]] && \
-                [[ $(contains "$PASSTHRU_VARNAMES" "${PASSTHRU_ARG:1}") ]]; then
+                [[ $(str_contains "$PASSTHRU_VARNAMES" "${PASSTHRU_ARG:1}") ]]; then
                 output "\"${PASSTHRU_ARG}\""
             else
                 output "'$PASSTHRU_ARG'"

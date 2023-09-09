@@ -1,9 +1,13 @@
 #!/bin/bash
 
+[[ -n "$BASHLIB_SOURCED" ]] && return 0;
+BASHLIB_SOURCED=true
+
 if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
 BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"
 BASHLIB_LIB_ALLOWLIST="${BASHLIB_LIB_ALLOWLIST:=}"
+BASHLIB_TRY_CATCH_DIR=$(mktemp -d)
 
 function should_alias() { if [[ "$ALIASES" == *" $1 "* ]]; then return 1; fi ; ALIASES="$ALIASES $1 "; }
 should_alias expand_aliases && shopt -s expand_aliases
@@ -11,6 +15,11 @@ should_alias failfast && alias failfast='if [[ "$-" != *"e"* ]]; then set -e; tr
 should_alias failignore && alias failignore='if [[ "$-" == *"e"* ]]; then set +e; trap "set -e" RETURN; fi'
 should_alias __silent && alias __silent=' >/dev/null 2>&1 '
 should_alias __bashlib && alias __bashlib='if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
+should_alias try && alias try='PID=$(pid); echo "" > "$BASHLIB_TRY_CATCH_DIR/$PID"; SET_E= ; [[ "$-" == *"e"* ]] && set +e && SET_E=1; e= ; em= ; E= ;'
+should_alias catch && alias catch=' R="$?"; [[ -f "$BASHLIB_TRY_CATCH_DIR/$PID" ]] && em="$(cat "$BASHLIB_TRY_CATCH_DIR/$PID")" && e="$(echo "$em" | head -n 1)" && E="ERROR($R): $em"; [[ -n "$SET_E" ]] && set -e && SET_E= ;'
+should_alias throw && alias throw='__throw "$(ppid)" "$BASH_SOURCE" "$LINENO"'
+function ppid() { local PID=$(pid); PID=$(ps -o ppid= -p "$PID"); ps -o ppid= -p "$PID"; }
+function __throw() { echo -e "$4\n    at $2:$3" > "$BASHLIB_TRY_CATCH_DIR/$1"; local CODE="$5"; CODE="${CODE:=1}"; return $CODE; }
 
 if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
     function error() { 

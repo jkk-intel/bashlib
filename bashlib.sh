@@ -3,7 +3,7 @@
 [[ -n "$BASHLIB_SOURCED" ]] && return 0;
 BASHLIB_SOURCED=true
 
-set -e; export SHELLOPTS;
+set -e
 
 if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
@@ -17,6 +17,8 @@ should_alias __silent && alias __silent=' >/dev/null 2>&1 '
 should_alias __bashlib && alias __bashlib='if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
 should_alias failfast && alias failfast='if [[ "$-" != *"e"* ]]; then set -e; trap "set +e" RETURN; fi'
 should_alias failignore && alias failignore='if [[ "$-" == *"e"* ]]; then set +e; trap "set -e" RETURN; fi'
+should_alias ff && alias ff='if [[ "$-" != *"e"* ]]; then set -e; trap "set +e" RETURN; fi'
+should_alias fig && alias fig='if [[ "$-" == *"e"* ]]; then set +e; trap "set -e" RETURN; fi'
 should_alias eout && alias eout='return 1 2>/dev/null || exit 1'
 should_alias skip && alias skip='return 0 2>/dev/null || exit 0'
 should_alias pid && alias pid='exec sh -c "echo \$PPID"'

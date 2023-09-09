@@ -21,100 +21,97 @@ should_alias throw && alias throw='__throw "$(ppid)" "$BASH_SOURCE" "$LINENO"'
 function ppid() { local PID=$(pid); PID=$(ps -o ppid= -p "$PID"); ps -o ppid= -p "$PID"; }
 function __throw() { echo -e "$4\n    at $2:$3" > "$BASHLIB_TRY_CATCH_DIR/$1"; local CODE="$5"; CODE="${CODE:=1}"; return $CODE; }
 
-if [[ -z $BASHLIB_DEFAULT_FUNCTIONS_SET ]]; then
-    function error() { 
-        __bashlib
-        if [[ "$1" == "-m" ]]; then local NO_EXIT=true; shift; fi
-        while IFS= read -r LINE; do echo -e "# $LINE" >&2; done <<< "ERROR; $@";
-        [[ $NO_EXIT ]] || return 1;
-    }
-    function str_index() {
-        __bashlib
-        local x="${1%%"$2"*}";
-        [[ "$x" = "$1" ]] && echo -1 || echo ${#x};
-    }
-    function str_contains() {
-        __bashlib
-        local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo '' || echo true;
-    }
-    function str_join_by {
-        local IFS="$1"; shift; echo "$*";
-    }
-    function str_split { IFS="$3" read -ra "$5" <<< "$1"; }
-    function hashmap_get() { local ARR=$1 I=$2; local VAR="${ARR}_$I"; printf '%s' "${!VAR}"; }
-    function pos_int() { case "$1" in ''|*[!0-9]*) ;; *) echo true ;; esac }
-    function lock() {
-        __bashlib
-        failignore
-        if [[ -z "$1" ]]; then return 1; fi
-        local HASH="$(echo "$1" | shasum -a 256)"; HASH="${HASH:0:32}"
-        local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
-        local LOCKF="$LOCKDIR/tmp/$HASH.lock" ; mkdir -p "$LOCKDIR/tmp"
-        local EXP="$2"; [[ -z "$EXP" ]] && EXP=60; (( EXP=EXP+$(date +%s) ));
-        local LOCKER=
-        if ( set -o noclobber; echo "$$:$EXP" > "$LOCKF" ) 2> /dev/null; then
-            LOCKER=$(cat "$LOCKF" 2> /dev/null)
-            if [[ "$LOCKER" == "$$:"* ]]; then echo true && return 0; fi
-        fi
+function error() { 
+    __bashlib
+    if [[ "$1" == "-m" ]]; then local NO_EXIT=true; shift; fi
+    while IFS= read -r LINE; do echo -e "# $LINE" >&2; done <<< "ERROR; $@";
+    [[ $NO_EXIT ]] || return 1;
+}
+function str_index() {
+    __bashlib
+    local x="${1%%"$2"*}";
+    [[ "$x" = "$1" ]] && echo -1 || echo ${#x};
+}
+function str_contains() {
+    __bashlib
+    local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo '' || echo true;
+}
+function str_join_by {
+    local IFS="$1"; shift; echo "$*";
+}
+function str_split { IFS="$3" read -ra "$5" <<< "$1"; }
+function hashmap_get() { local ARR=$1 I=$2; local VAR="${ARR}_$I"; printf '%s' "${!VAR}"; }
+function pos_int() { case "$1" in ''|*[!0-9]*) ;; *) echo true ;; esac }
+function lock() {
+    __bashlib
+    failignore
+    if [[ -z "$1" ]]; then return 1; fi
+    local HASH="$(echo "$1" | shasum -a 256)"; HASH="${HASH:0:32}"
+    local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
+    local LOCKF="$LOCKDIR/tmp/$HASH.lock" ; mkdir -p "$LOCKDIR/tmp"
+    local EXP="$2"; [[ -z "$EXP" ]] && EXP=60; (( EXP=EXP+$(date +%s) ));
+    local LOCKER=
+    if ( set -o noclobber; echo "$$:$EXP" > "$LOCKF" ) 2> /dev/null; then
         LOCKER=$(cat "$LOCKF" 2> /dev/null)
-        if [[ -n "$LOCKER" ]]; then
-            function strindex() { local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo -1 || echo ${#x}; }
-            local COLON_IDX=$(strindex "$LOCKER" ':')
-            if [[ "$COLON_IDX" == '-1' ]]; then return 0; fi
-            local LOCKER_PID=${LOCKER:0:$COLON_IDX}
-            local LOCK_EXP=${LOCKER:(($COLON_IDX+1))}
-            local KILL_OUTPUT="$(kill -s 0 "$LOCKER_PID" 2>&1 || true)"
-            if [[ $(strindex "$KILL_OUTPUT" "No such") != '-1' ]] || (( LOCK_EXP-$(date +%s)<0 )); then
-                rm -rf "$LOCKF" && echo $(lock "$1" "$2");
-            fi
+        if [[ "$LOCKER" == "$$:"* ]]; then echo true && return 0; fi
+    fi
+    LOCKER=$(cat "$LOCKF" 2> /dev/null)
+    if [[ -n "$LOCKER" ]]; then
+        function strindex() { local x="${1%%"$2"*}"; [[ "$x" = "$1" ]] && echo -1 || echo ${#x}; }
+        local COLON_IDX=$(strindex "$LOCKER" ':')
+        if [[ "$COLON_IDX" == '-1' ]]; then return 0; fi
+        local LOCKER_PID=${LOCKER:0:$COLON_IDX}
+        local LOCK_EXP=${LOCKER:(($COLON_IDX+1))}
+        local KILL_OUTPUT="$(kill -s 0 "$LOCKER_PID" 2>&1 || true)"
+        if [[ $(strindex "$KILL_OUTPUT" "No such") != '-1' ]] || (( LOCK_EXP-$(date +%s)<0 )); then
+            rm -rf "$LOCKF" && echo $(lock "$1" "$2");
         fi
-    }
-    function unlock() {
-        __bashlib
-        if [[ -z "$1" ]]; then return 1; fi
-        local HASH="$(echo "$1" | shasum -a 256)"
-        HASH="${HASH:0:32}"
-        local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
-        local pidf="$LOCKDIR/tmp/$HASH.lock"
-        rm -rf "$pidf"
-    }
-    function trylock() {
-        __bashlib
-        if [[ -z "$1" ]] || [[ -z "$2" ]]; then return 0; fi
-        local SIGNAL_FILE="$3"
-        local START_TIME=$(date +%s)
-        while [[ ! $(lock "$1" "$2") ]]; do
-            sleep 0.2;
-            if (( $(date +%s)-START_TIME>$2 )); then
-                echo "unable to gain lock in ${2}s" 1>&2; return 0;
-            fi
-            if [[ -f "$SIGNAL_FILE" ]]; then
-                echo "already_handled"
-                break
-            fi
-        done
-        echo "should_handle"
-    }
-    function killtree() {
-        __bashlib
-        if [[ "$1" != "-"* ]]; then error "Usage: killtree -SIGNAL <PID>"; fi
-        pkill "$1" -P "$2" & local CHPID= ; while IFS= read -r CHPID; do
-            [[ "$CHPID" ]] && [[ "$CHPID" != "$2" ]] && killtree "$1" "$CHPID"
-        done <<< "$(pgrep -P "$2" || true)"
-    }
-    function timeout() {
-        __bashlib
-        local TIMEOUT="$1" GRACE_PERIOD=; shift;
-        if [[ $(pos_int "$1") ]]; then GRACE_PERIOD="$1"; shift; fi
-        local EXPR="$@"; local EVAL_PID= ; (
-            eval "$EXPR &"; EVAL_PID=$!
-            ( sleep $TIMEOUT; error -m "Timed out in ${TIMEOUT}s: $EXPR"; killtree -SIGTERM $EVAL_PID __silent) &
-            [[ -n "$GRACE_PERIOD" ]] && ( sleep $((TIMEOUT+GRACE_PERIOD)); killtree -SIGKILL $EVAL_PID __silent) &
-            wait $EVAL_PID
-        )
-    }
-    BASHLIB_DEFAULT_FUNCTIONS_SET=true
-fi
+    fi
+}
+function unlock() {
+    __bashlib
+    if [[ -z "$1" ]]; then return 1; fi
+    local HASH="$(echo "$1" | shasum -a 256)"
+    HASH="${HASH:0:32}"
+    local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
+    local pidf="$LOCKDIR/tmp/$HASH.lock"
+    rm -rf "$pidf"
+}
+function trylock() {
+    __bashlib
+    if [[ -z "$1" ]] || [[ -z "$2" ]]; then return 0; fi
+    local SIGNAL_FILE="$3"
+    local START_TIME=$(date +%s)
+    while [[ ! $(lock "$1" "$2") ]]; do
+        sleep 0.2;
+        if (( $(date +%s)-START_TIME>$2 )); then
+            echo "unable to gain lock in ${2}s" 1>&2; return 0;
+        fi
+        if [[ -f "$SIGNAL_FILE" ]]; then
+            echo "already_handled"
+            break
+        fi
+    done
+    echo "should_handle"
+}
+function killtree() {
+    __bashlib
+    if [[ "$1" != "-"* ]]; then error "Usage: killtree -SIGNAL <PID>"; fi
+    pkill "$1" -P "$2" & local CHPID= ; while IFS= read -r CHPID; do
+        [[ "$CHPID" ]] && [[ "$CHPID" != "$2" ]] && killtree "$1" "$CHPID"
+    done <<< "$(pgrep -P "$2" || true)"
+}
+function timeout() {
+    __bashlib
+    local TIMEOUT="$1" GRACE_PERIOD=; shift;
+    if [[ $(pos_int "$1") ]]; then GRACE_PERIOD="$1"; shift; fi
+    local EXPR="$@"; local EVAL_PID= ; (
+        eval "$EXPR &"; EVAL_PID=$!
+        ( sleep $TIMEOUT; error -m "Timed out in ${TIMEOUT}s: $EXPR"; killtree -SIGTERM $EVAL_PID __silent) &
+        [[ -n "$GRACE_PERIOD" ]] && ( sleep $((TIMEOUT+GRACE_PERIOD)); killtree -SIGKILL $EVAL_PID __silent) &
+        wait $EVAL_PID
+    )
+}
 
 function bashlib() {
     failfast

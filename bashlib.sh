@@ -3,6 +3,8 @@
 [[ -n "$BASHLIB_SOURCED" ]] && return 0;
 BASHLIB_SOURCED=true
 
+set -e; export SHELLOPTS;
+
 if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
 BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"

@@ -21,11 +21,11 @@ should_alias ff && alias ff='if [[ "$-" != *"e"* ]]; then set -e; trap "set +e" 
 should_alias fig && alias fig='if [[ "$-" == *"e"* ]]; then set +e; trap "set -e" RETURN; fi'
 should_alias eout && alias eout='return 1 2>/dev/null || exit 1'
 should_alias skip && alias skip='return 0 2>/dev/null || exit 0'
-should_alias pid && alias pid='exec sh -c "echo \$PPID"'
 should_alias try && alias try='PID=$(pid); SET_E= ; [[ "$-" == *"e"* ]] && set +e && SET_E=1; e= ; em= ; E= ;'
 should_alias catch && alias catch=' R="$?"; [[ -f "$BASHLIB_TRY_CATCH_DIR/$PID" ]] && em="$(cat "$BASHLIB_TRY_CATCH_DIR/$PID")" && e="$(echo "$em" | head -n 1)" && E="ERROR($R): $em" && rm -rf "$BASHLIB_TRY_CATCH_DIR/$PID"; [[ "$R" != "0" ]] && [[ -z "$e" ]] && e="non-zero" && E="ERROR($R): $e" ; [[ -n "$SET_E" ]] && set -e && SET_E= ;'
 should_alias throw && alias throw='__throw "$(ppid)" "$BASH_SOURCE" "$LINENO"'
-function ppid() { local PID=$(pid); PID=$(ps -o ppid= -p "$PID"); ps -o ppid= -p "$PID"; }
+function pid() { exec bash -c "echo \$PPID | xargs"; }
+function ppid() { local PID=$(pid); PID=$(ps -o ppid= -p "$PID" | xargs); ps -o ppid= -p "$PID" | xargs; }
 function __throw() { echo -e "$4\n    at $2:$3" > "$BASHLIB_TRY_CATCH_DIR/$1"; local CODE="$5"; CODE="${CODE:=1}"; return $CODE; }
 
 function error() { 

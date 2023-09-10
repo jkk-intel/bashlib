@@ -58,7 +58,7 @@ function caller_trace() {
         if [[ -z "$1" ]] || (( $FRAME >= $1 )); then
             echo "    at ${TRACE_SPLIT[1]} ($FILE:$LINE)";
         fi
-        ((FRAME++));
+        (( FRAME+=1 ));
     done
 }
 function debug_trap() {
@@ -78,7 +78,7 @@ function debug_trap() {
         __TCDBG+=("$DBGLINE")
     elif [[ -n "$LINE_PROGRESSING" ]]; then
         # echo -e "[LINE PROGRESS] $DBGLINE" 1>&2
-        local IDX="${#__TCDBG[@]}"; ((IDX--));
+        local IDX="${#__TCDBG[@]}"; (( IDX-=1 ));
         if [[ "$IDX" == '-1' ]]; then
             __TCDBG[0]="$DBGLINE"
         else

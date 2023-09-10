@@ -399,7 +399,7 @@ function argp() {
         for SETTER in "${ARG_SETTERS[@]}"; do
             output "$SETTER"
         done
-        (( SHIFT_COUNT=SHIFT_COUNT-1 ))
+        (( SHIFT_COUNT-- ))
         output ""
         if [[ "$SHIFT_COUNT" -gt 0 ]]; then
             output "# shifting by $SHIFT_COUNT"

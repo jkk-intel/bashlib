@@ -3,7 +3,7 @@
 [[ -n "$BASHLIB_SOURCED" ]] && return 0;
 BASHLIB_SOURCED=true
 
-set -TEeo pipefail functrace
+set -TEeo pipefail
 
 # bashlib
 if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi

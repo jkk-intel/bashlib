@@ -305,6 +305,6 @@ function import() {
 }
 
 trap "RC=\$?; trap - DEBUG; exit_error_trap EXIT \$RC ROOT; exit \$RC" EXIT;
-trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC ROOT; exit \$RC" ERR;
+trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC ROOT; " ERR;
 trap "debug_trap \$LINENO \"\${FUNCNAME[0]}\" \"\${BASH_SOURCE[0]}\"" DEBUG;
 PID=$(pid); __trypush $PID;

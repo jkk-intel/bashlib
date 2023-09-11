@@ -10,6 +10,7 @@ if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
 BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"
 BASHLIB_LIB_ALLOWLIST="${BASHLIB_LIB_ALLOWLIST:=}"
+BASHLIB_DEBUG=true
 
 # try catch utils
 e= ; em= ; E= ; R= ;
@@ -28,11 +29,14 @@ __FLOWCTL_HALTED=
 function should_alias() { if [[ "$ALIASES" == *" $1 "* ]]; then return 1; fi ; ALIASES="$ALIASES $1 "; }
 should_alias expand_aliases && shopt -s expand_aliases
 should_alias __silent && alias __silent=' >/dev/null 2>&1 '
-should_alias __bashlib && alias __bashlib='if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
+should_alias __bashlib && alias __bashlib='tiff; if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
+should_alias __bashlib_fig && alias __bashlib='tifig; if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
 should_alias failfast && alias failfast='[[ "$-" != *"e"* ]] && set -e && trap "set +e" RETURN'
 should_alias failignore && alias failignore='[[ "$-" == *"e"* ]] && set +e && trap "set -e" RETURN'
-should_alias ff && alias ff='[[ "$-" != *"e"* ]] && set -e && trap "set +e" RETURN'
-should_alias fig && alias fig='[[ "$-" == *"e"* ]] && set +e && trap "set -e" RETURN'
+should_alias ff && alias ff='failfast'
+should_alias fig && alias fig='failignore'
+should_alias tiff && alias tiff='local TIF=tiff; [[ "$-" != *"e"* ]] && local SAVED_E="set +e;" && set -e; local DEBUG_TRAP_SAVED="$(trap -p DEBUG)"; [[ -n "$DEBUG_TRAP_SAVED" ]] && trap - DEBUG; trap "eval \"\$SAVED_E\$DEBUG_TRAP_SAVED\"" RETURN'
+should_alias tifig && alias tifig='local TIF=tifig; [[ "$-" == *"e"* ]] && local SAVED_E="set -e;" && set +e; local DEBUG_TRAP_SAVED="$(trap -p DEBUG)"; [[ -n "$DEBUG_TRAP_SAVED" ]] && trap - DEBUG; trap "eval \"\$SAVED_E\$DEBUG_TRAP_SAVED\"" RETURN'
 should_alias e && alias e='; [[ "$e" ]] && '
 should_alias se && alias se='echo -e "$E"'
 should_alias eout && alias eout='__throw "$(caller_trace)" eout || return 1 2>/dev/null || exit 1'
@@ -56,11 +60,13 @@ function __error_set() {
     [[ -f "$F" ]] && { em="$(cat "$F")"; e="$(echo -e "$em" | head -n 1)"; E="ERROR($RC): $em"; rm -rf "$F"; }
 }
 function __throw() {
+    trap_halt;
     local F="$__TCD/$(__trytop)";
     local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
     echo -e "$2\n$1" > "$F"; local __TC="1"; [[ -n "$3" ]] && __TC="$3";
     THROWN=true;
     [[ -n "$IS_ROOT" ]] && { __error_set "$F" "$__TC"; se; }
+    trap_resume;
     return $__TC;
 }
 function caller_trace() {
@@ -81,6 +87,7 @@ function caller_trace() {
 }
 function debug_trap() {
     [[ "$FLOWCTL_HALTED" ]] && return;
+    [[ "${BASH_COMMAND:0:9}" == 'local TIF=' ]] && return;
     [[ "${BASH_COMMAND:0:14}" == 'FLOWCTL_HALTED' ]] && return;
     local DELIM="$(str_index "$BASH_COMMAND" ' ')"
     local CMD_HEAD=
@@ -95,10 +102,10 @@ function debug_trap() {
     __TCLU="$1"; __TCFU="$FUNC"; __TCSU="$3"; [[ "${__TCSU:0:1}" != '/' ]] && __TCSU="$PWD/$__TCSU";
     local DBGLINE="    at $__TCFU ($__TCSU:$__TCLU)"
     if [[ -n "$FUNC_CHANGED" ]]; then
-        # echo -e "[$PID] [FUNC_CHANGED] ($BASH_COMMAND) $DBGLINE" 1>&2
+        [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID] [FUNC_CHANGED ] ($BASH_COMMAND) $DBGLINE" 1>&2
         __TCDBG+=("$DBGLINE")
     elif [[ -n "$LINE_PROGRESSING" ]]; then
-        # echo -e "[$PID] [LINE PROGRESS] ($BASH_COMMAND) $DBGLINE" 1>&2
+        [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID] [LINE PROGRESS] ($BASH_COMMAND) $DBGLINE" 1>&2
         local IDX="${#__TCDBG[@]}"; let "IDX--";
         if [[ "$IDX" == '-1' ]]; then __TCDBG[0]="$DBGLINE"; else __TCDBG[$IDX]="$DBGLINE"; fi
     fi
@@ -115,7 +122,8 @@ function debug_trap() {
 function exit_error_trap() {
     [[ "$FLOWCTL_HALTED" ]] && return;
     local KIND="$1"; local RC="$2"; local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
-    # echo -e "[$PID] [ ====== TEST ====== ] ROOT($(pid),$PID_ROOT)=$IS_ROOT $THROWN $1 $2 $3 $4 $5 $6 $(caller_trace)" 1>&2 || true
+    [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID] [EXIT/ERR TRAP] ROOT=$IS_ROOT THROWN=$THROWN" \
+                                         "$1 $2 $3 $4 $5 $6\n$(caller_trace)" 1>&2 || true
     if [[ -n "$THROWN" ]]; then return; fi
     if [[ "$__TCF2" == '__throw' ]]; then return; fi
     trap - "$KIND"
@@ -124,8 +132,7 @@ function exit_error_trap() {
         # intentional error with return or exit
         if [[ -n "$__TCF2" ]]; then
             DEEPER_TRACE="    at $__TCF2 ($__TCS2:$__TCL2)";
-            echo "${__TCDBG[@]}" 1>&2
-            __throw "$(caller_trace 2 "$DEEPER_TRACE" "${__TCDBG[${#__TCDBG[@]}-3]}")" 'error'  || true
+            __throw "$(caller_trace 2 "$DEEPER_TRACE" "${__TCDBG[${#__TCDBG[@]}-3]}")" 'error' || true
         else # unintentional error without return or exit
             DEEPER_TRACE="${__TCDBG[${#__TCDBG[@]}-1]}";
             __throw "$(caller_trace 2 "$DEEPER_TRACE")" 'error' || true
@@ -157,8 +164,7 @@ function str_split { IFS="$3" read -ra "$5" <<< "$1"; }
 function hashmap_get() { local ARR=$1 I=$2; local VAR="${ARR}_$I"; printf '%s' "${!VAR}"; }
 function pos_int() { case "$1" in ''|*[!0-9]*) ;; *) echo true ;; esac }
 function lock() {
-    __bashlib
-    failignore
+    __bashlib_fig
     if [[ -z "$1" ]]; then return 1; fi
     local HASH="$(echo "$1" | shasum -a 256)"; HASH="${HASH:0:32}"
     local LOCKDIR="$BASHLIB_LOCKDIR" ; if [[ -z "$LOCKDIR" ]]; then LOCKDIR="$SHARED_DIR"; fi
@@ -228,9 +234,9 @@ function timeout() {
 }
 
 function bashlib() {
-    failfast
+    tiff
     function fetch() {
-        failfast
+        tiff
         function debug() { [[ ! $DEBUG ]] && return 0; while IFS= read -r LINE; do echo -e "# $LINE" >&2; done <<< "$@"; }
         local AFTER_FROM= LIB_SOURCE= NOCACHE_IMPORT= DEBUG= PACKAGES=()
         for ARG in "$@"; do
@@ -247,6 +253,7 @@ function bashlib() {
             fi
         done
         if [[ -z "$LIB_SOURCE" ]]; then LIB_SOURCE="$BASHLIB_LIB_DEFAULT"; fi
+        if [[ "$LIB_SOURCE" == 'local' ]]; then return; fi
         for PKG_NAME_FULL in "${PACKAGES[@]}"; do
             local PKG_INFO=; str_split "$PKG_NAME_FULL" --delim ':' --into PKG_INFO
             local PKG_NAME="${PKG_INFO[0]}"; local PKG_VER="${PKG_INFO[1]}"; local PKG_BRANCH="${PKG_INFO[2]}"
@@ -313,6 +320,7 @@ function bashlib() {
 }
 
 function import() {
+    tiff;
     bashlib import "$@"
 }
 

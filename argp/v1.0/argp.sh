@@ -1,9 +1,9 @@
 #!/bin/bash
 
 function argp() {
-    failfast
+    tiff;
     function setdef() {
-        failfast
+        tiff;
         local ACTION="$1"; shift;
         local PARAMS=()
         local PARAMS_SECTION_ENDED=
@@ -48,7 +48,7 @@ function argp() {
     if [[ "$ACTION" == "passthru_flag" ]]; then setdef PASSTHRU_FLAG "$@"; return 0; fi
 
     function parse() {
-        failfast
+        tiff;
         local ARGS=
         function output() { echo -e "$@"; }
         function debug() { 
@@ -67,6 +67,7 @@ function argp() {
         local ARG_PASSTHRU_VAR_NAMES=()
         local ARG_PASSTHRU_VALUE_SETTERS=()
         function safe_assign_op() {
+            tiff;
             local VAR_NAME="$1"
             local VAR_VALUE="$2"
             local IS_ARRAY_PUSH="$3"
@@ -98,6 +99,7 @@ function argp() {
             fi
         }
         function add_argsetter() {
+            tiff;
             local ARG_NAME="$1"
             local ARG_TYPE="$2"
             local VAR_NAME="$3"

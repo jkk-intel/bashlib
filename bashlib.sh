@@ -12,6 +12,7 @@ BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"
 BASHLIB_LIB_ALLOWLIST="${BASHLIB_LIB_ALLOWLIST:=}"
 
 # try catch utils
+e= ; em= ; E= ; R= ;
 __TCD=$(mktemp -d) # try-catch thrown error store dir
 __TCA=() # try-catch subshells pid array
 __TCL= # try-catch lineno
@@ -22,6 +23,7 @@ __TCF2= # try-catch funcname (depth 2)
 __TCS2= # try-catch source (depth 2)
 __TCFS= # try-catch funcname & source
 __TCDBG=() # try-catch debug stack trace
+__FLOWCTL_HALTED=
 
 function should_alias() { if [[ "$ALIASES" == *" $1 "* ]]; then return 1; fi ; ALIASES="$ALIASES $1 "; }
 should_alias expand_aliases && shopt -s expand_aliases
@@ -35,19 +37,34 @@ should_alias e && alias e='; [[ "$e" ]] && '
 should_alias se && alias se='echo -e "$E"'
 should_alias eout && alias eout='__throw "$(caller_trace)" eout || return 1 2>/dev/null || exit 1'
 should_alias skip && alias skip='return 0 2>/dev/null || exit 0'
-should_alias try && alias try='PID=$(pid); e= ; em= ; E= ; R= ; __trypush $PID; [[ "$-" == *"e"* ]] && set +e && SET_E=1; (trap_err_push; ff; '
-should_alias catch && alias catch='); R="$?"; __trypop; [[ -f "$__TCD/$PID" ]] && { em="$(cat "$__TCD/$PID")"; e="$(echo "$em" | head -n 1)"; E="ERROR($R): $em"; rm -rf "$__TCD/$PID"; }; [[ "$SET_E" ]] && set -e && SET_E= '
+should_alias try && alias try='trap_halt; PID=$(pid); e= ; em= ; E= ; R= ; __trypush $PID; trap_resume; set +e; (trap_err_push; set -e; PID=$(pid);'
+should_alias catch && alias catch='); R="$?"; trap_halt; __trypop; __error_set "$__TCD/$PID" "$R"; set -e; trap_resume '
 should_alias resolved && alias resolved='; [[ true ]] && '
 should_alias finally && alias finally='; [[ true ]] && '
 should_alias throw && alias throw='__throw "$(caller_trace)"'
-should_alias trap_err_push && alias trap_err_push='trap "RC=\$?; trap - DEBUG; exit_error_trap EXIT \$RC;" EXIT; trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC; exit \$RC" ERR; trap "debug_trap \$LINENO \"\${FUNCNAME[0]}\" \"\${BASH_SOURCE[0]}\"" DEBUG'
+should_alias debug_line && alias debug_line='echo "    at ${FUNCNAME[0]} (${BASH_SOURCE[0]}:$LINENO)"'
+should_alias trap_halt && alias trap_halt='FLOWCTL_HALTED=1'
+should_alias trap_resume && alias trap_resume='FLOWCTL_HALTED=""'
+should_alias trap_err_push && alias trap_err_push='trap "RC=\$?; trap - DEBUG; exit_error_trap EXIT \$RC \"\" \"\$(debug_line)\";" EXIT; trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC \"\" \"\$(debug_line)\";" ERR; trap "debug_trap \$LINENO \"\${FUNCNAME[0]}\" \"\${BASH_SOURCE[0]}\"" DEBUG'
 function pid() { exec bash -c "echo \$PPID | xargs"; }
 function ppid() { local PID=$(pid); PID=$(ps -o ppid= -p "$PID" | xargs); ps -o ppid= -p "$PID" | xargs; }
-function __trypush() { __TCA+=("$1"); }
-function __trytop() { echo "${__TCA[${#__TCA[@]}-1]}"; }
-function __trypop() { unset '__TCA[${#__TCA[@]}-1]'; }
-function __throw() { echo -e "$2\n$1" > "$__TCD/$(__trytop)"; local __TC="$3"; __TC="${__TC:=1}"; THROWN=true; return $__TC; }
+function __trypush() { __TCA+=("$1") || true; }
+function __trytop() { echo "${__TCA[${#__TCA[@]}-1]}" || true; }
+function __trypop() { unset '__TCA[${#__TCA[@]}-1]' || true; }
+function __error_set() {
+    local F="$1"; local RC="$2";
+    [[ -f "$F" ]] && { em="$(cat "$F")"; e="$(echo -e "$em" | head -n 1)"; E="ERROR($RC): $em"; rm -rf "$F"; }
+}
+function __throw() {
+    local F="$__TCD/$(__trytop)";
+    local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
+    echo -e "$2\n$1" > "$F"; local __TC="1"; [[ -n "$3" ]] && __TC="$3";
+    THROWN=true;
+    [[ -n "$IS_ROOT" ]] && { __error_set "$F" "$__TC"; se; }
+    return $__TC;
+}
 function caller_trace() {
+    trap_halt; fig;
     local FRAME=0; local TRACE= ; local TRACE_SPLIT=
     [[ -n "$2" ]] && echo "$2"; [[ -n "$3" ]] && echo "$3";
     while TRACE="$(caller $FRAME)"; do
@@ -55,13 +72,16 @@ function caller_trace() {
         local FILE="${TRACE_SPLIT[2]}";
         local LINE="${TRACE_SPLIT[0]}";
         [[ "${FILE:0:1}" != '/' ]] && FILE="$(pwd)/$FILE";
-        if [[ -z "$1" ]] || (( $FRAME >= $1 )); then
+        if [[ -z "$1" ]] || [[ "$FRAME" -ge "$1" ]]; then
             echo "    at ${TRACE_SPLIT[1]} ($FILE:$LINE)";
         fi
-        (( FRAME+=1 ));
+        let "FRAME++";
     done
+    trap_resume;
 }
 function debug_trap() {
+    [[ "$FLOWCTL_HALTED" ]] && return;
+    [[ "${BASH_COMMAND:0:14}" == 'FLOWCTL_HALTED' ]] && return;
     local DELIM="$(str_index "$BASH_COMMAND" ' ')"
     local CMD_HEAD=
     if [[ "$DELIM" == '-1' ]]; then
@@ -69,26 +89,21 @@ function debug_trap() {
     else
         CMD_HEAD="${BASH_COMMAND:0:$DELIM}";
     fi
-    local FUNC_CHANGED= ; [[ "$__TCFU" != "$2" ]] && FUNC_CHANGED=true
+    local FUNC="$2"; [[ -z "$FUNC" ]] && FUNC='main';
+    local FUNC_CHANGED= ; [[ "$__TCFU" != "$FUNC" ]] && FUNC_CHANGED=true
     local LINE_PROGRESSING=; [[ -n "$__TCLU" ]] && (( "$__TCLU" < $1 )) && LINE_PROGRESSING=true
-    __TCLU="$1"; __TCFU="$2"; __TCSU="$3"; [[ "${__TCSU:0:1}" != '/' ]] && __TCSU="$PWD/$__TCSU";
+    __TCLU="$1"; __TCFU="$FUNC"; __TCSU="$3"; [[ "${__TCSU:0:1}" != '/' ]] && __TCSU="$PWD/$__TCSU";
     local DBGLINE="    at $__TCFU ($__TCSU:$__TCLU)"
     if [[ -n "$FUNC_CHANGED" ]]; then
-        # echo -e "[FUNC_CHANGED] $DBGLINE" 1>&2
+        # echo -e "[$PID] [FUNC_CHANGED] ($BASH_COMMAND) $DBGLINE" 1>&2
         __TCDBG+=("$DBGLINE")
     elif [[ -n "$LINE_PROGRESSING" ]]; then
-        # echo -e "[LINE PROGRESS] $DBGLINE" 1>&2
-        local IDX="${#__TCDBG[@]}"; (( IDX-=1 ));
-        if [[ "$IDX" == '-1' ]]; then
-            __TCDBG[0]="$DBGLINE"
-        else
-            __TCDBG[$IDX]="$DBGLINE"
-        fi
+        # echo -e "[$PID] [LINE PROGRESS] ($BASH_COMMAND) $DBGLINE" 1>&2
+        local IDX="${#__TCDBG[@]}"; let "IDX--";
+        if [[ "$IDX" == '-1' ]]; then __TCDBG[0]="$DBGLINE"; else __TCDBG[$IDX]="$DBGLINE"; fi
     fi
     if [[ "$CMD_HEAD" == 'return' ]] || [[ "$CMD_HEAD" == 'exit' ]]; then
-        local TCL="$1"; local TCF="$2";
-        local TCS="$3"; [[ "${TCS:0:1}" != '/' ]] && TCS="$PWD/$TCS";
-        local TCFS="$TCF $TCS";
+        local TCL="$__TCLU"; local TCF="$__TCFU"; local TCS="$__TCSU"; local TCFS="$TCF $TCS";
         if [[ "$__TCFS" != "$TCFS" ]]; then
             __TCL2="$__TCL"; __TCF2="$__TCF"; __TCS2="$__TCS";
             __TCL="$TCL"; __TCF="$TCF"; __TCS="$TCS"; __TCFS="$TCFS";
@@ -98,28 +113,25 @@ function debug_trap() {
     fi
 }
 function exit_error_trap() {
-    local KIND="$1"; local RC="$2"; local IS_ROOT="$3";
-    trap - "$KIND"
-    # echo -e "[TEST] $THROWN $1 $2 $3 $__TCF2" 1>&2
+    [[ "$FLOWCTL_HALTED" ]] && return;
+    local KIND="$1"; local RC="$2"; local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
+    # echo -e "[$PID] [ ====== TEST ====== ] ROOT($(pid),$PID_ROOT)=$IS_ROOT $THROWN $1 $2 $3 $4 $5 $6 $(caller_trace)" 1>&2 || true
     if [[ -n "$THROWN" ]]; then return; fi
     if [[ "$__TCF2" == '__throw' ]]; then return; fi
-    if [[ "$KIND" == 'ERR' ]]; then
+    trap - "$KIND"
+    if [[ "$KIND" == 'ERR' ]] && [[ -z "$IS_ROOT" ]]; then
         local DEEPER_TRACE=
         # intentional error with return or exit
         if [[ -n "$__TCF2" ]]; then
             DEEPER_TRACE="    at $__TCF2 ($__TCS2:$__TCL2)";
-            __throw "$(caller_trace 2 "$DEEPER_TRACE" "${__TCDBG[${#__TCDBG[@]}-3]}")" 'error' || true
-            [[ "$IS_ROOT" ]] && echo -e "ERROR($RC): error\n$(caller_trace 2 "$DEEPER_TRACE" "${__TCDBG[${#__TCDBG[@]}-3]}")" 1>&2
+            echo "${__TCDBG[@]}" 1>&2
+            __throw "$(caller_trace 2 "$DEEPER_TRACE" "${__TCDBG[${#__TCDBG[@]}-3]}")" 'error'  || true
         else # unintentional error without return or exit
             DEEPER_TRACE="${__TCDBG[${#__TCDBG[@]}-1]}";
             __throw "$(caller_trace 2 "$DEEPER_TRACE")" 'error' || true
-            [[ "$IS_ROOT" ]] && echo -e "ERROR($RC): error\n$(caller_trace 2 "$DEEPER_TRACE")" 1>&2
         fi
-        THROWN=true
     elif [[ "$KIND" == 'EXIT' ]] && [[ "$RC" != '0' ]]; then
-        trap - ERR
-        [[ "$IS_ROOT" ]] && echo -e "ERROR($RC): error\n$(caller_trace 1)" 1>&2
-        THROWN=true
+        __throw "$(caller_trace 1)" 'error' || true
     fi
 }
 
@@ -304,7 +316,7 @@ function import() {
     bashlib import "$@"
 }
 
-trap "RC=\$?; trap - DEBUG; exit_error_trap EXIT \$RC ROOT; exit \$RC" EXIT;
-trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC ROOT; " ERR;
+PID=$(pid); PID_ROOT=$(pid); __trypush $PID;
+trap "RC=\$?; trap - DEBUG; exit_error_trap EXIT \$RC \"\$(debug_line)\" ROOT;" EXIT;
+trap "RC=\$?; trap - DEBUG; exit_error_trap ERR \$RC \"\$(debug_line)\" ROOT;" ERR;
 trap "debug_trap \$LINENO \"\${FUNCNAME[0]}\" \"\${BASH_SOURCE[0]}\"" DEBUG;
-PID=$(pid); __trypush $PID;

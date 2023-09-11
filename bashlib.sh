@@ -10,7 +10,7 @@ if [[ -n "$SHARED_DIR" ]]; then BASHLIB_HOME="$SHARED_DIR/.bashlib" ; fi
 BASHLIB_HOME="${BASHLIB_HOME:="$HOME/.bashlib"}"
 BASHLIB_LIB_DEFAULT="${BASHLIB_LIB_DEFAULT:=}"
 BASHLIB_LIB_ALLOWLIST="${BASHLIB_LIB_ALLOWLIST:=}"
-BASHLIB_DEBUG=true
+BASHLIB_DEBUG=
 
 # try catch utils
 e= ; em= ; E= ; R= ;
@@ -30,7 +30,7 @@ function should_alias() { if [[ "$ALIASES" == *" $1 "* ]]; then return 1; fi ; A
 should_alias expand_aliases && shopt -s expand_aliases
 should_alias __silent && alias __silent=' >/dev/null 2>&1 '
 should_alias __bashlib && alias __bashlib='tiff; if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
-should_alias __bashlib_fig && alias __bashlib='tifig; if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
+should_alias __bashlib_fig && alias __bashlib_fig='tifig; if [[ "$1" == "--bashlib" ]]; then echo true && return 0; fi'
 should_alias failfast && alias failfast='[[ "$-" != *"e"* ]] && set -e && trap "set +e" RETURN'
 should_alias failignore && alias failignore='[[ "$-" == *"e"* ]] && set +e && trap "set -e" RETURN'
 should_alias ff && alias ff='failfast'

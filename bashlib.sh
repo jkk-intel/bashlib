@@ -50,7 +50,7 @@ function __error_load() {
     local F="$1"; local RC="$2";
     [[ -f "$F" ]] && { em="$(cat "$F")"; e="$(echo -e "$em" | head -n 1)"; E="ERROR: $em"; rm -rf "$F"; }
 }
-function __error_prune() { rm -rf "$__TCD/*"; }
+function __error_prune() { rm -rf "$__TCD" || true; }
 function throw() {
     trap_halt;
     TC_EMSG="$1"; [[ -z "$TC_EMSG" ]] && TC_EMSG="flow canceled at '$LEC'";
@@ -104,14 +104,15 @@ function debug_trap() {
     fi
     local CODE="$4"; local R_ORI="$R";
     local FUNC="$2"; [[ -z "$FUNC" ]] && FUNC='main';
-    if [[ "$FUNC" == 'exit_error_trap' ]] || [[ "$FUNC" == 'caller_trace' ]]; then return; fi
+    if [[ "$FUNC" == 'exit_error_trap' ]] || [[ "$FUNC" == 'caller_trace' ]] || \
+        [[ "$FUNC" == 'pid' ]] || [[ "$FUNC" == 'throw' ]]; then return; fi
     if [[ "$CMD_HEAD" == 'exit_error_trap' ]] || [[ "$CMD_HEAD" == 'caller_trace' ]]; then return; fi
     local FUNC_CHANGED= ; [[ "$__TCFU" != "$FUNC" ]] && FUNC_CHANGED=true
     local LINE_PROGRESSING=; [[ -n "$__TCLU" ]] && (( "$__TCLU" < $1 )) && LINE_PROGRESSING=true
     __TCLU="$1"; __TCFU="$FUNC"; __TCSU="$3"; [[ "${__TCSU:0:1}" != '/' ]] && __TCSU="$PWD/$__TCSU";
     local DBGLINE="    at $__TCFU ($__TCSU:$__TCLU)"
     if [[ "$R" != 0 ]] || [[ -n "$__TC_IN_EXIT" ]]; then
-        [[ "$R" == 0 ]] && [[ "$CODE" != 0 ]] && R="$CODE" && TC_RC="$CODE";
+        # [[ "$R" == 0 ]] && [[ "$CODE" != 0 ]] && R="$CODE" && TC_RC="$CODE";
         [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ EXIT_FLOW ] ($BASH_COMMAND) $DBGLINE" 1>&2
     else
         if [[ -n "$FUNC_CHANGED" ]]; then
@@ -134,8 +135,15 @@ function debug_trap() {
 function exit_error_trap() {
     local KIND="$1"; local RC="$2"; local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
     R="$RC"; TC_RC="$RC";
-    [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R] [ EXIT/ERR TRAP ] ($KIND) ROOT=$IS_ROOT THROWN=$THROWN ($LEC)" 1>&2 || true
-    [[ -n "$BASHLIB_DEBUG" ]] && caller_trace 1>&2
+    [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R] [ EXIT/ERR TRAP ] ($KIND) ROOT=$IS_ROOT THROWN=$THROWN ($LEC)" 1>&2
+    [[ -n "$BASHLIB_DEBUG" ]] && caller_trace 1>&2 || true
+    if [[ -f "$__TCD/error_code" ]]; then
+        R="$(cat "$__TCD/error_code")"; TC_RC="$R"
+    else
+        [[ ! -d "$__TCD" ]] && mkdir -p "$__TCD";
+        echo "$R" > "$__TCD/error_code";
+    fi
+    if [[ -n "$THROWN_ROOT" ]]; then return; fi
     if [[ -n "$THROWN" ]] && [[ -z "$IS_ROOT" ]]; then return; fi
     local ERRF="$__TCD/error"; local ERRC="$__TCD/error_command"; local FRESH=
     if [[ -f "$ERRF" ]]; then
@@ -144,10 +152,14 @@ function exit_error_trap() {
         TC_STACK="$(caller_trace 3 "$__TCDBG_LAST")"; FRESH=true
         echo -e "$LEC" > "$ERRC"; echo -e "$TC_STACK" > "$ERRF";
     fi
-    [[ "$R" != '0' ]] && __throw
-    if [[ -n "$IS_ROOT" ]]; then
-        [[ -z "$ROOT_ERROR_ECHO" ]] && [[ -n "$FRESH" ]] && \
-            ROOT_ERROR_ECHO=true && echo -e "ERROR: $TC_EMSG\n$TC_STACK" 1>&2
+    if [[ "$R" != '0' ]]; then
+        __throw
+        if [[ -n "$IS_ROOT" ]]; then
+            [[ ! -f "$__TCD/error_root" ]] && \
+                touch "$__TCD/error_root" && THROWN_ROOT=true &&
+                echo -e "ERROR: $TC_EMSG\n$TC_STACK" 1>&2 &&
+                __error_prune && return "$R"
+        fi
     fi
 }
 

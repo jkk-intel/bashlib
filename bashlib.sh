@@ -50,7 +50,7 @@ function __error_load() {
     local F="$1"; local RC="$2";
     [[ -f "$F" ]] && { em="$(cat "$F")"; e="$(echo -e "$em" | head -n 1)"; E="ERROR: $em"; rm -rf "$F"; }
 }
-function __error_prune() { rm -rf "$__TCD/*" || true; }
+function __error_prune() { rm -rf "$__TCD" || true; }
 function throw() {
     trap_halt;
     TC_EMSG="$1"; [[ -z "$TC_EMSG" ]] && TC_EMSG="flow canceled at '$LEC'";

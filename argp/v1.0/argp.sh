@@ -409,7 +409,7 @@ function argp() {
         fi
     }
     if [[ "$ACTION" == "parse" ]]; then 
-        parse "$@";
+        parse "$@" || true;
         ARG_DEFS=()
         return 0
     fi

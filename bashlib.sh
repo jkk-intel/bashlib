@@ -149,7 +149,7 @@ function exit_error_trap() {
     if [[ -f "$ERRF" ]]; then
         LEC="$(cat "$ERRC")"; TC_STACK="$(cat "$ERRF")";
     else
-        TC_STACK="$(caller_trace 3 "$__TCDBG_LAST")"; FRESH=true
+        TC_STACK="$(caller_trace 3 "$__TCDBG_LAST" || true)"; FRESH=true
         echo -e "$LEC" > "$ERRC"; echo -e "$TC_STACK" > "$ERRF";
     fi
     if [[ "$R" != '0' ]]; then

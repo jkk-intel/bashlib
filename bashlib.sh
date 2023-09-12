@@ -113,15 +113,15 @@ function debug_trap() {
     local DBGLINE="    at $__TCFU ($__TCSU:$__TCLU)"
     if [[ "$R" != 0 ]] || [[ -n "$__TC_IN_EXIT" ]]; then
         # [[ "$R" == 0 ]] && [[ "$CODE" != 0 ]] && R="$CODE" && TC_RC="$CODE";
-        [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ EXIT_FLOW ] ($BASH_COMMAND) $DBGLINE" 1>&2
+        [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ EXIT_FLOW ] ($BASH_COMMAND) $DBGLINE" 1>&2 || true
     else
         if [[ -n "$FUNC_CHANGED" ]]; then
-            [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ FUNC_CHANGED ] ($BASH_COMMAND) $DBGLINE" 1>&2
+            [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ FUNC_CHANGED ] ($BASH_COMMAND) $DBGLINE" 1>&2 || true
             __TCDBG+=("$DBGLINE");
             __TCDBG_LAST="$DBGLINE";
             LEC="$BASH_COMMAND"
         elif [[ -n "$LINE_PROGRESSING" ]]; then
-            [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ LINE PROGRESS ] ($BASH_COMMAND) $DBGLINE" 1>&2
+            [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R_ORI] [ LINE PROGRESS ] ($BASH_COMMAND) $DBGLINE" 1>&2 || true
             local IDX="${#__TCDBG[@]}"; let "IDX--";
             if [[ "$IDX" == '-1' ]]; then __TCDBG[0]="$DBGLINE"; else __TCDBG[$IDX]="$DBGLINE"; fi
             __TCDBG_LAST="$DBGLINE";
@@ -135,7 +135,7 @@ function debug_trap() {
 function exit_error_trap() {
     local KIND="$1"; local RC="$2"; local IS_ROOT=1; [[ "$(pid)" != "$PID_ROOT" ]] && IS_ROOT= ;
     R="$RC"; TC_RC="$RC";
-    [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R] [ EXIT/ERR TRAP ] ($KIND) ROOT=$IS_ROOT THROWN=$THROWN ($LEC)" 1>&2
+    [[ -n "$BASHLIB_DEBUG" ]] && echo -e "[$PID:$R] [ EXIT/ERR TRAP ] ($KIND) ROOT=$IS_ROOT THROWN=$THROWN ($LEC)" 1>&2 || true
     [[ -n "$BASHLIB_DEBUG" ]] && caller_trace 1>&2 || true
     if [[ -f "$__TCD/error_code" ]]; then
         R="$(cat "$__TCD/error_code")"; TC_RC="$R"

@@ -286,13 +286,15 @@ function argp() {
             fi
             (( SHIFT_COUNT=SHIFT_COUNT+1 ))
             if [[ -n "$LAST_ARG_NAME" ]] && [[ "${ARG:0:1}" == "-" ]]; then
-                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || [[ $(str_contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
+                if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || \
+                    [[ "$LAST_ARG_TYPE" == 'TYPE_FLAG' ]] || \
+                    [[ $(str_contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
                     add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
                     LAST_ARG_NAME=
                     LAST_ARG_TYPE=
                     LAST_ARG_VAR_NAME=
                 else
-                    error "param '$LAST_ARG_NAME' requires a value ," \
+                    error "param '$LAST_ARG_NAME' requires a value," \
                         "but instead got '$ARG' (while handling '$ARG_CONTEXT')"
                 fi
             fi
@@ -373,6 +375,18 @@ function argp() {
             debug "passover:${CYAN}  '$ARG'  ${NC}"
             REMAINING_ARGS+=("$ARG")
         done
+        if [[ -n "$LAST_ARG_NAME" ]]; then
+            if [[ "$LAST_ARG_TYPE" == 'TYPE_HYBRID' ]] || \
+                [[ "$LAST_ARG_TYPE" == 'TYPE_FLAG' ]] || \
+                [[ $(str_contains "$LAST_ARG_TYPE" PASSTHRU) ]]; then
+                add_argsetter "$LAST_ARG_NAME" "$LAST_ARG_TYPE" "$LAST_ARG_VAR_NAME" '' "$ARG_CONTEXT"
+                LAST_ARG_NAME=
+                LAST_ARG_TYPE=
+                LAST_ARG_VAR_NAME=
+            else
+                error "param '$LAST_ARG_NAME' requires a value"
+            fi
+        fi
         debug ""
         output ""
         output "function $SAFE_ASSIGN(){ IFS='' read -r -d '' \"\${1}\" || true; }"
